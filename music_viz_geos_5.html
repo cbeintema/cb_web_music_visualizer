@@ -76,6 +76,9 @@
           <input id="file" type="file" accept="audio/*" class="full" />
         </div>
         <div class="row">
+          <label class="inline full">System Audio <input id="systemAudio" type="checkbox"></label>
+        </div>
+        <div class="row">
           <button id="play" class="full">Play</button>
           <button id="pause" class="full">Pause</button>
         </div>
@@ -96,6 +99,7 @@
       <div class="content">
         <label class="inline">MIDI <input id="midiOn" type="checkbox"></label>
         <label class="inline">MIDI Learn <input id="midiLearn" type="checkbox"></label>
+        <div id="midiStatus" style="font-size:12px; line-height:1.3; opacity:0.8;"></div>
       </div>
     </details>
 
@@ -165,7 +169,7 @@
         <div class="row">
           <label class="inline">A <input id="fillColA" type="color" value="#4cc3ff"></label>
           <label class="inline">B <input id="fillColB" type="color" value="#ff5cd6"></label>
-          <label class="stack full">Angle° <input id="fillAngle" type="range" min="0" max="360" step="1" value="0"></label>
+          <label class="stack full">Angle° <input id="fillAngle" type="range" min="0" max="360" step="1" value="0"></label>∏
         </div>
 
         <div class="row">
@@ -178,9 +182,9 @@
           <label class="inline">B <input id="wireColB" type="color" value="#ffd27a"></label>
           <label class="stack full">Angle° <input id="wireAngle" type="range" min="0" max="360" step="1" value="0"></label>
         </div>
-        <label class="stack full">Wire W <input id="wireW" type="range" min="0.5" max="3" step="0.1" value="1.3"></label>
+        <label class="stack full">Wire W <input id="wireW" type="range" min="0.5" max="3" step="0.1" value="0.3"></label>
         <div class="row">
-          <label class="inline">Two-sided <input id="twoSided" type="checkbox"></label>
+          <label class="inline">Two-sided <input id="twoSided" type="checkbox" checked></label>
           <label class="inline">Lighting <input id="lightingOn" type="checkbox" checked></label>
         </div>
       </div>
@@ -202,7 +206,7 @@
       <summary>Post FX</summary>
       <div class="content">
         <div class="row">
-          <label class="inline">Bloom <input id="bloomOn" type="checkbox" checked></label>
+          <label class="inline">Bloom <input id="bloomOn" type="checkbox"></label>
           <label class="stack full">Th <input id="bloomTh" type="range" min="0.0" max="2.0" step="0.01" value="1.0"></label>
           <label class="stack full">Str <input id="bloomStr" type="range" min="0.0" max="2.5" step="0.01" value="0.9"></label>
           <label class="stack full">Blur <input id="bloomBlur" type="range" min="1" max="10" step="1" value="4"></label>
@@ -214,7 +218,7 @@
           <label class="stack full">Blur <input id="dofBlur" type="range" min="0" max="10" step="0.1" value="4"></label>
         </div>
         <div class="row">
-          <label class="inline">Vignette <input id="vigOn" type="checkbox" checked></label>
+          <label class="inline">Vignette <input id="vigOn" type="checkbox"></label>
           <label class="stack full">Vig <input id="vigAmt" type="range" min="0" max="1" step="0.01" value="0.25"></label>
         </div>
         <div class="row">
@@ -331,16 +335,19 @@
 
     const midiOnEl = document.getElementById('midiOn');
     const midiLearnEl = document.getElementById('midiLearn');
+    const midiStatusEl = document.getElementById('midiStatus');
 
     const presetSaveBtn = document.getElementById('presetSave');
     const presetLoadBtn = document.getElementById('presetLoad');
     const presetFileEl  = document.getElementById('presetFile');
+  const systemAudioEl = document.getElementById('systemAudio');
 
     
     // Audio
     const audio = new Audio();
     audio.preload = 'metadata';
-    let audioCtx = null, analyser = null, sourceNode = null;
+  let audioCtx = null, analyser = null, sourceNode = null;
+  let systemStream = null, systemSourceNode = null, systemAudioOn = false;
     let sampleRate = 48000;
     const FFT_SIZE = 2048;
     let freqData = null;
@@ -355,11 +362,67 @@
         analyser.maxDecibels = -10;
         analyser.smoothingTimeConstant = 0.85;
         freqData = new Uint8Array(analyser.frequencyBinCount);
-        sourceNode = audioCtx.createMediaElementSource(audio);
-        sourceNode.connect(analyser);
-        analyser.connect(audioCtx.destination);
+      }
+      // (Re)attach element source only if not using system audio and not already attached
+      if (!systemAudioOn && audioCtx && !sourceNode) {
+        try {
+          sourceNode = audioCtx.createMediaElementSource(audio);
+          sourceNode.connect(analyser);
+          analyser.connect(audioCtx.destination);
+        } catch (e) {
+          // Ignore errors if multiple connections attempted
+        }
       }
     }
+
+    async function enableSystemAudio() {
+      if (systemAudioOn) return;
+      ensureAudio();
+      try {
+        // Chrome often requires video:true for system audio selection
+        systemStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: { echoCancellation:false, noiseSuppression:false, sampleRate:audioCtx.sampleRate }
+        });
+        const audioTracks = systemStream.getAudioTracks();
+        if (!audioTracks.length) {
+          console.warn('No system audio track found.');
+          stopSystemAudio();
+          systemAudioEl.checked = false;
+          return;
+        }
+        // Disconnect element source if present so levels are only system output
+        if (sourceNode) {
+          try { sourceNode.disconnect(); } catch(_){}
+          sourceNode = null;
+        }
+        systemSourceNode = audioCtx.createMediaStreamSource(systemStream);
+        systemSourceNode.connect(analyser);
+        systemAudioOn = true;
+        // Pause local audio element playback to avoid double sound
+        if (!audio.paused) audio.pause();
+        console.log('[SystemAudio] Enabled');
+      } catch (err) {
+        console.error('Failed to capture system audio', err);
+        systemAudioEl.checked = false;
+      }
+    }
+    function stopSystemAudio() {
+      if (systemSourceNode) { try { systemSourceNode.disconnect(); } catch(_){} systemSourceNode = null; }
+      if (systemStream) {
+        systemStream.getTracks().forEach(t => t.stop());
+        systemStream = null;
+      }
+      systemAudioOn = false;
+      // Reconnect element source if a file was loaded
+      if (audio.src) {
+        ensureAudio();
+      }
+      console.log('[SystemAudio] Disabled');
+    }
+    systemAudioEl.addEventListener('change', () => {
+      if (systemAudioEl.checked) enableSystemAudio(); else stopSystemAudio();
+    });
 
     
 
@@ -1248,6 +1311,7 @@
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       if (camera.mode==='fly') {
+
         if (middleDown) {
           // Middle wheel: adjust Fly speed
           const min = parseFloat(flySpeedEl.min || '0.5');
@@ -1365,8 +1429,18 @@
       const kind = kindForElement(el);
       if (kind === 'range') {
         const min = parseFloat(el.min ?? 0), max = parseFloat(el.max ?? 1);
-        const v = min + (max - min) * (ccVal / 127);
-        el.value = (el.step && parseFloat(el.step) >= 1) ? String(Math.round(v)) : String(v);
+        const raw = min + (max - min) * (ccVal / 127);
+        const step = parseFloat(el.step || '0');
+        let v = raw;
+        if (!isNaN(step) && step > 0) {
+          const steps = Math.round((raw - min) / step);
+            v = min + steps * step;
+            // Clamp precision to step decimals
+            const stepDec = (step.toString().split('.')[1] || '').length;
+            el.value = v.toFixed(stepDec);
+        } else {
+          el.value = String(v);
+        }
         el.dispatchEvent(new Event('input', { bubbles:true }));
       } else if (kind === 'select') {
         const n = el.options.length;
@@ -1423,6 +1497,89 @@
         }
       }
     }
+
+    // --- MIDI access / lifecycle ---
+    function setMIDIStatus(msg, color='#ccc') {
+      if (midiStatusEl) midiStatusEl.innerHTML = msg.replace(/\n/g,'<br>');
+      if (midiStatusEl) midiStatusEl.style.color = color;
+    }
+
+    function listInputs() {
+      if (!midiAccess) return '(no inputs)';
+      let txt = [];
+      midiAccess.inputs.forEach(inp => {
+        txt.push(`${inp.name}${inp.manufacturer ? ' — '+inp.manufacturer : ''}`);
+      });
+      return txt.length ? txt.join(', ') : '(no inputs)';
+    }
+
+    function updateMIDIStatus() {
+      if (!midiEnabled) return;
+      setMIDIStatus(`MIDI Enabled\nInputs: ${listInputs()}`, '#9fd3ff');
+    }
+
+    function attachMIDIInputs() {
+      if (!midiAccess) return;
+      midiAccess.inputs.forEach(input => { input.onmidimessage = onMIDIMessage; });
+      updateMIDIStatus();
+    }
+
+    function handleMIDIStateChange() {
+      attachMIDIInputs();
+    }
+
+    async function enableMIDI() {
+      if (midiEnabled) { updateMIDIStatus(); return; }
+      if (!window.isSecureContext) {
+        setMIDIStatus('WebMIDI needs secure context.\nServe via: python3 -m http.server', '#f88');
+        return;
+      }
+      if (!('requestMIDIAccess' in navigator)) {
+        setMIDIStatus('WebMIDI not supported in this browser.\nUse Chrome / Edge.', '#f88');
+        return;
+      }
+      midiOnEl.disabled = true;
+      setMIDIStatus('Enabling MIDI…', '#ffdb7a');
+      try {
+        midiAccess = await navigator.requestMIDIAccess({ sysex:false });
+        midiAccess.addEventListener('statechange', handleMIDIStateChange);
+        midiEnabled = true;
+        // Load persistent learned map
+        const saved = localStorage.getItem('midiLearnMap');
+        if (saved) {
+          try { Object.assign(midiMap, JSON.parse(saved)); } catch(_) {}
+        }
+        attachMIDIInputs();
+        setMIDIStatus(`MIDI Enabled\nInputs: ${listInputs()}`, '#9fd3ff');
+        console.log('[MIDI] Enabled');
+      } catch (err) {
+        console.error('Failed to get MIDI access', err);
+        setMIDIStatus(`Failed to enable MIDI:\n${err && err.message ? err.message : err}`, '#f88');
+        // Leave checkbox unchecked to reflect failure
+        midiOnEl.checked = false;
+      } finally {
+        midiOnEl.disabled = false;
+      }
+    }
+
+    function disableMIDI() {
+      if (!midiEnabled) { setMIDIStatus('MIDI Off'); return; }
+      midiEnabled = false;
+      if (midiAccess) {
+        midiAccess.removeEventListener('statechange', handleMIDIStateChange);
+        midiAccess.inputs.forEach(inp => inp.onmidimessage = null);
+      }
+      setMIDIStatus('MIDI Off', '#ccc');
+      console.log('[MIDI] Disabled');
+    }
+
+    // Replace previous midiOnEl change listener with this:
+    midiOnEl.addEventListener('change', () => {
+      if (midiOnEl.checked) enableMIDI(); else disableMIDI();
+    });
+
+    // Initialize status
+    setMIDIStatus('MIDI Off');
 
     // Rendering
     let lastTime = performance.now();
