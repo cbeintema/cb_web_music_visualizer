@@ -88,6 +88,9 @@
           <button id="presetLoad" class="full">Load Preset</button>
           <input id="presetFile" type="file" accept="application/json" style="display:none">
         </div>
+        <div class="row">
+          <label class="inline full">Debug Output <input id="debugOn" type="checkbox"></label>
+        </div>
         <label class="inline full">Background <input id="bgColor" type="color" value="#050510"></label>
         <label class="stack full">Brightness <input id="bright" type="range" min="0.4" max="2" step="0.01" value="1.1"></label>
       </div>
@@ -230,6 +233,20 @@
           <label class="stack full">Amount <input id="caAmt" type="range" min="0" max="0.05" step="0.001" value="0.006"></label>
         </div>
         <div class="row">
+          <label class="inline">Barrel/Pincushion Distortion <input id="distOn" type="checkbox"></label>
+          <label class="stack full">Amount <input id="distAmt" type="range" min="-0.5" max="0.5" step="0.001" value="0.02"></label>
+        </div>
+        <div class="row">
+          <label class="stack">Center X <input id="distCenterX" type="range" min="-0.5" max="0.5" step="0.001" value="0.0"></label>
+          <label class="stack">Center Y <input id="distCenterY" type="range" min="-0.5" max="0.5" step="0.001" value="0.0"></label>
+        </div>
+        <div class="row">
+          <label class="stack full">Strength Curve (k2) <input id="distK2" type="range" min="-0.2" max="0.2" step="0.001" value="0.0"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Apply Bloom After Distortion <input id="distBloomAfter" type="checkbox"></label>
+        </div>
+        <div class="row">
           <label class="inline">Pixelate <input id="pixOn" type="checkbox"></label>
           <label class="stack full">Px <input id="pixSize" type="range" min="1" max="8" step="1" value="2"></label>
         </div>
@@ -263,9 +280,54 @@
 
   <script>
   (async () => {
+    try {
     const canvas = document.getElementById('gl');
     const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
-    if (!gl) { alert('WebGL2 not supported'); return; }
+    // Debug overlay for runtime errors (visible on-screen)
+    const debugEl = document.createElement('div');
+    debugEl.id = 'debugOverlay';
+    Object.assign(debugEl.style, {
+      position: 'fixed', right: '12px', top: '12px', zIndex: 9999,
+      maxWidth: '40vw', maxHeight: '40vh', overflow: 'auto', background: 'rgba(10,10,10,0.85)', color:'#f88', padding:'8px', borderRadius:'8px', fontSize:'12px', fontFamily:'monospace'
+    });
+    document.body.appendChild(debugEl);
+    // Safe serializer that avoids throwing on circular refs or complex objects
+    function safeSerialize(val) {
+      if (typeof val === 'string') return val;
+      try {
+        const seen = new WeakSet();
+        return JSON.stringify(val, function(k, v){
+          if (v && typeof v === 'object') {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          // avoid serializing large typed arrays fully
+          if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) return `[${v.constructor.name}]`;
+          return v;
+        });
+      } catch (e) {
+        try { return String(val); } catch(_) { return Object.prototype.toString.call(val); }
+      }
+    }
+    const appendDebug = (t, ...args) => {
+      const parts = args.map(a => safeSerialize(a));
+      const msg = `[${t}] ${parts.join(' ')}\n`;
+      debugEl.textContent += msg;
+      debugEl.scrollTop = debugEl.scrollHeight;
+    };
+    const _oldErr = console.error.bind(console);
+    console.error = (...args) => { appendDebug('ERROR', ...args); _oldErr(...args); };
+    const _oldLog = console.log.bind(console);
+    console.log = (...args) => { appendDebug('LOG', ...args); _oldLog(...args); };
+    // Start hidden; allow UI checkbox to toggle visibility
+    debugEl.style.display = 'none';
+    const debugOnEl = document.getElementById('debugOn');
+    if (debugOnEl) {
+      debugOnEl.addEventListener('change', () => {
+        debugEl.style.display = debugOnEl.checked ? 'block' : 'none';
+      });
+    }
+    if (!gl) { alert('WebGL2 not supported'); console.error('WebGL2 not supported'); return; }
 
     // UI
     const ui = document.getElementById('ui');
@@ -329,6 +391,12 @@
     const grainAmtEl = document.getElementById('grainAmt');
   const caOnEl = document.getElementById('caOn');
   const caAmtEl = document.getElementById('caAmt');
+  const distOnEl = document.getElementById('distOn');
+  const distAmtEl = document.getElementById('distAmt');
+  const distCenterXEl = document.getElementById('distCenterX');
+  const distCenterYEl = document.getElementById('distCenterY');
+  const distK2El = document.getElementById('distK2');
+  const distBloomAfterEl = document.getElementById('distBloomAfter');
     const pixOnEl = document.getElementById('pixOn');
     const pixSizeEl = document.getElementById('pixSize');
     const postOnEl = document.getElementById('postOn');
@@ -1030,9 +1098,118 @@
       FragColor = vec4(color, 1.0);
     }`;
 
-    const progDown = program(vsQuad, fsDown);
-    const progBlur = program(vsQuad, fsBlur);
-    const progComp = program(vsQuad, fsComposite);
+    let progDown = null, progBlur = null, progComp = null;
+    try {
+      progDown = program(vsQuad, fsDown);
+    } catch (e) {
+      console.error('[Shader] fsDown failed:', e);
+      const fsDownFallback = `#version 300 es
+        precision highp float; in vec2 vUV; uniform sampler2D uTex; uniform float uThreshold; out vec4 FragColor;
+        void main(){ vec3 c = texture(uTex,vUV).rgb; vec3 bloom = max(c - vec3(uThreshold), vec3(0.0)); FragColor = vec4(bloom,1.0); }`;
+      progDown = program(vsQuad, fsDownFallback);
+    }
+    try {
+      progBlur = program(vsQuad, fsBlur);
+    } catch (e) {
+      console.error('[Shader] fsBlur failed:', e);
+      const fsBlurFallback = `#version 300 es
+        precision highp float; in vec2 vUV; uniform sampler2D uTex; uniform vec2 uTexel; uniform vec2 uDir; out vec4 FragColor;
+        void main(){ FragColor = texture(uTex, vUV); }`;
+      progBlur = program(vsQuad, fsBlurFallback);
+    }
+    try {
+      progComp = program(vsQuad, fsComposite);
+    } catch (e) {
+      console.error('[Shader] fsComposite failed:', e);
+      // Minimal composite fallback declaring expected uniforms and doing a simple blend
+      const fsCompFallback = `#version 300 es
+        precision highp float; in vec2 vUV; uniform sampler2D uScene; uniform sampler2D uBloom; uniform sampler2D uDepth;
+        uniform float uStrength; uniform float uBrightness;
+        uniform bool uDOFOn; uniform float uNear,uFar,uFocus,uRange,uDOFBlur;
+        uniform bool uVigOn; uniform float uVigAmt; uniform bool uGrainOn; uniform float uGrainAmt;
+        uniform bool uPixOn; uniform float uPixSize; uniform bool uPostOn; uniform float uPostLevels;
+        uniform float uTime; uniform bool uCAOn; uniform float uCAAmt; out vec4 FragColor;
+        void main(){ vec3 s = texture(uScene, vUV).rgb; vec3 b = texture(uBloom, vUV).rgb * uStrength; vec3 col = (s + b) * uBrightness; FragColor = vec4(col,1.0); }`;
+      progComp = program(vsQuad, fsCompFallback);
+    }
+
+    // Distortion pass: barrel / pincushion
+    const fsDistort = `#version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uTex;        // composited scene
+    uniform sampler2D uBloomTex;   // bloom (optional, sampled after distortion)
+    uniform float uAmt; // positive = barrel, negative = pincushion
+    uniform vec2 uCenter; // distortion center in uv (0..1)
+    uniform float uK2;    // higher-order curve term (r^4)
+    uniform float uBloomStr; // bloom strength to add after distortion
+    uniform int uBloomAfter;  // bool: apply bloom after distortion
+  uniform int uVigOn;      // vignette toggle (applied after distortion)
+  uniform float uVigAmt;   // vignette amount
+    out vec4 FragColor;
+
+    void main(){
+      // remap so center is at origin in -1..1 space
+      vec2 p = vUV - uCenter;
+      vec2 uv = p * 2.0; // -2..2 relative to center scaling (keeps sign/ratio)
+      float r2 = dot(uv, uv);
+      // polynomial radial distortion: scale = 1 + k*r^2 + k2*r^4
+      float k = uAmt;
+      float k2 = uK2;
+      float scale = 1.0 + k * r2 + k2 * r2 * r2;
+      vec2 dst = uv * scale;
+      // map back to 0..1 using center
+      vec2 sampleUV = (dst * 0.5) + uCenter;
+
+      // Soft-edge handling: sample clamped coords and fade to black when far outside
+      vec2 clamped = clamp(sampleUV, vec2(0.0), vec2(1.0));
+      vec4 base = texture(uTex, clamped);
+      float outDist = length(sampleUV - clamped);
+      // fade from no-darkening near edge to full dark at large distances
+      float fade = smoothstep(0.0, 0.6, outDist);
+      vec4 color = mix(base, vec4(0.0), fade);
+
+      // If sampling is inside bounds, prefer precise sample (avoid clamped smearing)
+      if (all(greaterThanEqual(sampleUV, vec2(0.0))) && all(lessThanEqual(sampleUV, vec2(1.0)))) {
+        color = texture(uTex, sampleUV);
+      }
+
+      // Optionally add bloom after distortion (so bloom follows the warp)
+      if (uBloomAfter == 1) {
+        // sample bloom using same displaced UV; bloom texture expected to be pre-blurred
+        vec3 b = texture(uBloomTex, clamp(sampleUV, vec2(0.0), vec2(1.0))).rgb;
+        color.rgb += b * uBloomStr;
+      }
+
+      // Vignette applied after distortion so it remains visible even when the image is warped
+      if (uVigOn == 1) {
+        vec2 pv = vUV * 2.0 - 1.0;
+        float rv = dot(pv, pv);
+        float vig = smoothstep(1.2, 0.2, rv);
+        color.rgb *= mix(1.0, vig, uVigAmt);
+      }
+
+      FragColor = color;
+    }`;
+  let progDist = null;
+    try {
+      progDist = program(vsQuad, fsDistort);
+    } catch (e) {
+      console.error('[Shader] Distortion shader failed to compile/link:', e);
+      // Fallback: simple blit shader to keep app running
+      const fsDistortFallback = `#version 300 es
+      precision highp float;
+      in vec2 vUV; uniform sampler2D uTex; out vec4 FragColor;
+      void main(){ FragColor = texture(uTex, vUV); }`;
+      try {
+        progDist = program(vsQuad, fsDistortFallback);
+      } catch (e2) {
+        // If fallback also fails, rethrow so developer notices
+        console.error('[Shader] Fallback distortion shader failed:', e2);
+        throw e2;
+      }
+    }
+  console.log('[GL] progDist created', !!progDist);
 
     const locDown = {
       uTex: gl.getUniformLocation(progDown, 'uTex'),
@@ -1066,6 +1243,19 @@
   uTime: gl.getUniformLocation(progComp, 'uTime'),
   uCAOn: gl.getUniformLocation(progComp, 'uCAOn'),
   uCAAmt: gl.getUniformLocation(progComp, 'uCAAmt'),
+    };
+
+    // Distortion locs
+    const locDist = {
+      uTex: gl.getUniformLocation(progDist, 'uTex'),
+      uAmt: gl.getUniformLocation(progDist, 'uAmt'),
+      uCenter: gl.getUniformLocation(progDist, 'uCenter'),
+      uK2: gl.getUniformLocation(progDist, 'uK2'),
+      uBloomTex: gl.getUniformLocation(progDist, 'uBloomTex'),
+      uBloomStr: gl.getUniformLocation(progDist, 'uBloomStr'),
+      uBloomAfter: gl.getUniformLocation(progDist, 'uBloomAfter'),
+  uVigOn: gl.getUniformLocation(progDist, 'uVigOn'),
+  uVigAmt: gl.getUniformLocation(progDist, 'uVigAmt'),
     };
 
     // Fullscreen quad
@@ -1111,9 +1301,11 @@
       gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, gl.DEPTH_COMPONENT, type, null);
       return t;
     }
-    let sceneTex=null, sceneDepthTex=null, sceneFB=null;
-    let bloomA=null, bloomB=null, fbA=null, fbB=null;
-    let usePost = true, hasDepthTex = true, depthRB = null;
+  let sceneTex=null, sceneDepthTex=null, sceneFB=null;
+  let bloomA=null, bloomB=null, fbA=null, fbB=null;
+  let postTex=null, postFB=null;
+  let blackTex = null;
+  let usePost = true, hasDepthTex = true, depthRB = null;
 
     function tryAllocScene(w,h, depthMode /* 'tex24'|'tex16'|'rb' */) {
       // cleanup first
@@ -1164,6 +1356,26 @@
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbB);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, bloomB, 0);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  // Final post texture (composited image) so we can run a distortion pass
+  // Keep it same size as scene
+  postTex && gl.deleteTexture(postTex); postTex = makeColorTex(w,h);
+  postFB && gl.deleteFramebuffer(postFB); postFB = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, postTex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // one-pixel black texture used as a safe 'no-bloom' sampler
+  if (!blackTex) {
+    blackTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, blackTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const px = new Uint8Array([0,0,0,255]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  }
+  console.log('[GL] allocFBOs created FBOs, sizes', w, h);
     }
 
     // Math helpers
@@ -1383,6 +1595,16 @@
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); if (audio.paused) { ensureAudio(); audioCtx.resume(); audio.play(); } else audio.pause(); }
       else if (e.code === 'KeyH') ui.classList.toggle('off');
+      else if (e.code === 'KeyD') {
+        // Ignore when typing in text inputs or textareas
+        const tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          if (typeof debugOnEl !== 'undefined' && debugOnEl) {
+            debugOnEl.checked = !debugOnEl.checked;
+            debugOnEl.dispatchEvent(new Event('change'));
+          }
+        }
+      }
       else if (e.code === 'KeyF') frameObject();
       else if (e.code === 'KeyC') { flyOnEl.checked = !flyOnEl.checked; flyOnEl.dispatchEvent(new Event('change')); }
       else if (e.code === 'KeyR') autoRotOnEl.checked = !autoRotOnEl.checked;
@@ -1402,20 +1624,42 @@
     });
     // Playback button handlers
     function updatePlaybackButtons(){
-      const canPlay = !!audio.src || systemAudioOn;
-      playBtn.disabled = !canPlay || !audio.paused;
-      pauseBtn.disabled = !canPlay || audio.paused;
+  const canPlay = !!audio.src || systemAudioOn;
+  // Diagnostic logging to help track button state when debugging
+  console.log('[PlaybackButtons] canPlay=', canPlay, 'audio.src=', audio.src, 'systemAudioOn=', systemAudioOn, 'audio.paused=', audio.paused);
+  playBtn.disabled = !canPlay || !audio.paused;
+  pauseBtn.disabled = !canPlay || audio.paused;
+  console.log('[PlaybackButtons] playBtn.disabled=', playBtn.disabled, 'pauseBtn.disabled=', pauseBtn.disabled);
     }
     playBtn.addEventListener('click', async () => {
+      console.log('[Play] clicked', { src: audio.src, systemAudioOn, paused: audio.paused, audioCtxExists: !!audioCtx });
       if (!audio.src && !systemAudioOn) {
         console.warn('[Audio] No audio source. Load a file or enable System Audio.');
         return;
       }
       ensureAudio();
-      try { await audioCtx.resume(); } catch(_){}
+      // Try to resume audio context if available
+      try {
+        if (audioCtx) {
+          await audioCtx.resume();
+          console.log('[Play] audioCtx resumed');
+        }
+      } catch (err) {
+        console.warn('[Play] audioCtx.resume() failed', err);
+      }
+
+      // Attempt to start playback. Await the promise so we can catch rejections.
       if (!systemAudioOn) {
-        audio.play().then(()=>console.log('[Audio] Play pressed')).catch(err=>console.warn('[Audio] Play failed', err));
+        try {
+          await audio.play();
+          console.log('[Audio] Play started');
+        } catch (err) {
+          console.error('[Audio] Play failed', err);
+          // Some browsers reject play() without a user gesture; inform the user
+          alert('Playback failed: ' + (err && err.message ? err.message : String(err)));
+        }
       } else {
+        try { if (audioCtx) await audioCtx.resume(); } catch(_){}
         console.log('[Audio] System audio capture active; context resumed');
       }
       updatePlaybackButtons();
@@ -1718,8 +1962,9 @@
   const startTime = performance.now();
 
     function draw(now) {
-      const dt = Math.min(0.05, (now - lastTime) / 1000);
-      lastTime = now;
+      try {
+        const dt = Math.min(0.05, (now - lastTime) / 1000);
+        lastTime = now;
 
   // Pass animated time to post FX shader for grain animation
   const t = (performance.now() - startTime) * 0.001;
@@ -1893,8 +2138,8 @@
           gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         }
 
-        // 3) Composite to screen
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        // 3) Composite into postFB (so we can run a final distortion pass)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
         gl.viewport(0,0,canvas.width,canvas.height);
         gl.disable(gl.DEPTH_TEST);
         gl.useProgram(progComp);
@@ -1907,9 +2152,16 @@
         gl.bindTexture(gl.TEXTURE_2D, sceneTex);
         gl.uniform1i(locComp.uScene, 0);
 
+  // If bloom should be applied after distortion, keep composite bloom input empty (use black)
+  const applyBloomAfter = distBloomAfterEl.checked;
         gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, doBloom ? bloomA : sceneTex);
-        gl.uniform1i(locComp.uBloom, 1);
+        if (doBloom && applyBloomAfter) {
+          // reserve bloom for post-distortion pass: provide black here so composite has no bloom
+          gl.bindTexture(gl.TEXTURE_2D, blackTex);
+        } else {
+          gl.bindTexture(gl.TEXTURE_2D, (doBloom ? bloomA : sceneTex));
+        }
+  gl.uniform1i(locComp.uBloom, 1);
 
         gl.activeTexture(gl.TEXTURE2);
         gl.bindTexture(gl.TEXTURE_2D, hasDepthTex ? sceneDepthTex : sceneTex);
@@ -1925,8 +2177,10 @@
         gl.uniform1f(locComp.uRange, parseFloat(dofRangeEl.value));
         gl.uniform1f(locComp.uDOFBlur, parseFloat(dofBlurEl.value));
 
-        gl.uniform1i(locComp.uVigOn, vigOnEl.checked ? 1 : 0);
-        gl.uniform1f(locComp.uVigAmt, parseFloat(vigAmtEl.value));
+  // If distortion will apply vignette later, disable it in composite to avoid double-vig
+  const compApplyVig = !distOnEl.checked;
+  gl.uniform1i(locComp.uVigOn, (vigOnEl.checked && compApplyVig) ? 1 : 0);
+  gl.uniform1f(locComp.uVigAmt, parseFloat(vigAmtEl.value));
         gl.uniform1i(locComp.uGrainOn, grainOnEl.checked ? 1 : 0);
         gl.uniform1f(locComp.uGrainAmt, parseFloat(grainAmtEl.value));
   // Chromatic Aberration uniforms from UI
@@ -1936,6 +2190,46 @@
         gl.uniform1f(locComp.uPixSize, parseFloat(pixSizeEl.value));
         gl.uniform1i(locComp.uPostOn, postOnEl.checked ? 1 : 0);
         gl.uniform1f(locComp.uPostLevels, parseFloat(postLevEl.value));
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        // 4) Final pass: distortion (if enabled) or blit to screen
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0,0,canvas.width,canvas.height);
+        gl.disable(gl.DEPTH_TEST);
+        // Final pass: distortion (if enabled) or blit to screen
+        gl.useProgram(progDist);
+        gl.bindVertexArray(vaoQuad);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, postTex);
+        gl.uniform1i(locDist.uTex, 0);
+
+        // Distortion params
+        const centerX = 0.5 + parseFloat(distCenterXEl.value);
+        const centerY = 0.5 + parseFloat(distCenterYEl.value);
+        gl.uniform2f(locDist.uCenter, centerX, centerY);
+        gl.uniform1f(locDist.uAmt, parseFloat(distAmtEl.value));
+        gl.uniform1f(locDist.uK2, parseFloat(distK2El.value));
+
+  // Bloom-after: bind bloom texture and pass flag/strength
+        const bloomAfter = distBloomAfterEl.checked && bloomOnEl.checked;
+        if (bloomAfter) {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, bloomA);
+          gl.uniform1i(locDist.uBloomTex, 1);
+          gl.uniform1f(locDist.uBloomStr, parseFloat(bloomStrEl.value));
+          gl.uniform1i(locDist.uBloomAfter, 1);
+        } else {
+          gl.uniform1i(locDist.uBloomAfter, 0);
+        }
+
+  // Vignette: pass through to distortion shader so it can apply vignette after warping
+  gl.uniform1i(locDist.uVigOn, vigOnEl.checked ? 1 : 0);
+  gl.uniform1f(locDist.uVigAmt, parseFloat(vigAmtEl.value));
+
+        // If distortion is disabled, just set amt=0 to blit
+        const amt = distOnEl.checked ? parseFloat(distAmtEl.value) : 0.0;
+        gl.uniform1f(locDist.uAmt, amt);
+
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.enable(gl.DEPTH_TEST);
         gl.bindVertexArray(null);
@@ -1993,9 +2287,15 @@
         gl.bindVertexArray(null);
       }
 
+      } catch (err) {
+        console.error('[Render] Error in draw loop:', err);
+      }
       requestAnimationFrame(draw);
     }
     requestAnimationFrame(draw);
+    } catch (err) {
+      console.error('[Init] Error during initialization:', err);
+    }
   })();
   </script>
 </body>
