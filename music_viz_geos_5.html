@@ -251,6 +251,14 @@
           <label class="stack full">Px <input id="pixSize" type="range" min="1" max="8" step="1" value="2"></label>
         </div>
         <div class="row">
+          <label class="inline">Macroblocks <input id="blockOn" type="checkbox"></label>
+          <label class="stack full">Block Px <input id="blockSize" type="range" min="1" max="64" step="1" value="8"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Scramble Blocks <input id="blockScrOn" type="checkbox"></label>
+          <label class="stack full">Scramble Amt <input id="blockScrAmt" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+        </div>
+        <div class="row">
           <label class="inline">Tape Wobble <input id="wobOn" type="checkbox"></label>
           <!-- Reduced max/step/default for subtler effect -->
           <label class="stack full">Wobble Amt <input id="wobAmt" type="range" min="0" max="0.01" step="0.0001" value="0.0008"></label>
@@ -424,6 +432,10 @@
   const distBloomAfterEl = document.getElementById('distBloomAfter');
     const pixOnEl = document.getElementById('pixOn');
     const pixSizeEl = document.getElementById('pixSize');
+  const blockOnEl = document.getElementById('blockOn');
+  const blockSizeEl = document.getElementById('blockSize');
+  const blockScrOnEl = document.getElementById('blockScrOn');
+  const blockScrAmtEl = document.getElementById('blockScrAmt');
     const postOnEl = document.getElementById('postOn');
     const postLevEl = document.getElementById('postLev');
   const fbClearBtn = document.getElementById('fbClear');
@@ -1067,6 +1079,9 @@
   uniform float uVhsGhostAmt;
   uniform float uVhsGhostOffset;
   uniform bool uCAOn; uniform float uCAAmt;
+  // Blocky macroblock / scramble
+  uniform bool uBlockOn; uniform float uBlockSize;
+  uniform bool uBlockScrOn; uniform float uBlockScrAmt;
 
     out vec4 FragColor;
 
@@ -1077,6 +1092,9 @@
     }
 
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+
+  // integer hash for block scrambling
+  float ihash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
 
     // Sample the scene texture with DOF applied at an arbitrary UV.
     vec3 sampleSceneWithDOF(vec2 uv, vec2 res) {
@@ -1132,6 +1150,28 @@
         color *= uBrightness;
       } else {
         color = (scene + bloom) * uBrightness;
+      }
+
+      // Macroblock / blocky compression: operate in UV space
+      if (uBlockOn) {
+        // blockSize is in pixels; convert to UV-space using res
+        float bs = max(1.0, uBlockSize);
+        vec2 px = 1.0 / res;
+        vec2 blk = vec2(bs) * px; // UV size of block
+        // find block center
+        vec2 bidx = floor(vUV / blk);
+        vec2 bmin = bidx * blk;
+        vec2 center = bmin + 0.5 * blk;
+        vec3 sampleCol = sampleSceneWithDOF(clamp(center, vec2(0.0), vec2(1.0)), res) + texture(uBloom, clamp(center, vec2(0.0), vec2(1.0))).rgb * uStrength;
+        // optionally scramble blocks by offsetting center by a small random amount per-block
+        if (uBlockScrOn) {
+          float r = ihash(bidx + vec2(uTime * 0.1));
+          float amt = uBlockScrAmt;
+          // generate a random offset within +/- half block
+          vec2 offs = vec2((r - 0.5) * amt * blk.x, (fract(r * 1.37) - 0.5) * amt * blk.y);
+          sampleCol = sampleSceneWithDOF(clamp(center + offs, vec2(0.0), vec2(1.0)), res) + texture(uBloom, clamp(center + offs, vec2(0.0), vec2(1.0))).rgb * uStrength;
+        }
+        color = sampleCol * uBrightness;
       }
 
       if (uPostOn) {
@@ -1356,6 +1396,10 @@
   uTime: gl.getUniformLocation(progComp, 'uTime'),
   uCAOn: gl.getUniformLocation(progComp, 'uCAOn'),
   uCAAmt: gl.getUniformLocation(progComp, 'uCAAmt'),
+  uBlockOn: gl.getUniformLocation(progComp, 'uBlockOn'),
+  uBlockSize: gl.getUniformLocation(progComp, 'uBlockSize'),
+  uBlockScrOn: gl.getUniformLocation(progComp, 'uBlockScrOn'),
+  uBlockScrAmt: gl.getUniformLocation(progComp, 'uBlockScrAmt'),
     };
 
     // Distortion locs
@@ -2361,6 +2405,11 @@
         gl.uniform1f(locComp.uPixSize, parseFloat(pixSizeEl.value));
         gl.uniform1i(locComp.uPostOn, postOnEl.checked ? 1 : 0);
         gl.uniform1f(locComp.uPostLevels, parseFloat(postLevEl.value));
+  // Blocky macroblocks
+  if (locComp.uBlockOn) gl.uniform1i(locComp.uBlockOn, blockOnEl.checked ? 1 : 0);
+  if (locComp.uBlockSize) gl.uniform1f(locComp.uBlockSize, parseFloat(blockSizeEl.value));
+  if (locComp.uBlockScrOn) gl.uniform1i(locComp.uBlockScrOn, blockScrOnEl.checked ? 1 : 0);
+  if (locComp.uBlockScrAmt) gl.uniform1f(locComp.uBlockScrAmt, parseFloat(blockScrAmtEl.value));
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
         // Copy postTex into write-feedback framebuffer for next-frame reads
