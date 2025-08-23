@@ -252,14 +252,23 @@
         </div>
         <div class="row">
           <label class="inline">Tape Wobble <input id="wobOn" type="checkbox"></label>
-          <label class="stack full">Wobble Amt <input id="wobAmt" type="range" min="0" max="0.02" step="0.0005" value="0.002"></label>
+          <!-- Reduced max/step/default for subtler effect -->
+          <label class="stack full">Wobble Amt <input id="wobAmt" type="range" min="0" max="0.01" step="0.0001" value="0.0008"></label>
         </div>
         <div class="row">
-          <label class="stack full">Wobble Speed <input id="wobSpeed" type="range" min="0.0" max="4.0" step="0.01" value="0.8"></label>
+          <label class="stack full">Wobble Speed <input id="wobSpeed" type="range" min="0.0" max="4.0" step="0.01" value="0.6"></label>
         </div>
         <div class="row">
           <label class="inline">VHS Chroma Bleed <input id="vhsOn" type="checkbox"></label>
           <label class="stack full">Chroma Amt <input id="vhsAmt" type="range" min="0" max="0.01" step="0.0002" value="0.002"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Frame Feedback <input id="fbOn" type="checkbox"></label>
+          <button id="fbClear" class="small" title="Clear feedback buffers" style="margin-left:8px">Clear FB</button>
+          <label class="stack full">Feedback Amt <input id="fbAmt" type="range" min="0" max="1" step="0.01" value="0.25"></label>
+        </div>
+        <div class="row">
+          <label class="stack full">Feedback Decay <input id="fbDecay" type="range" min="0" max="1" step="0.01" value="0.95"></label>
         </div>
         <div class="row">
           <label class="inline">Posterize <input id="postOn" type="checkbox"></label>
@@ -417,6 +426,7 @@
     const pixSizeEl = document.getElementById('pixSize');
     const postOnEl = document.getElementById('postOn');
     const postLevEl = document.getElementById('postLev');
+  const fbClearBtn = document.getElementById('fbClear');
 
     const flyOnEl = document.getElementById('flyOn');
     const flySpeedEl = document.getElementById('flySpeed');
@@ -513,6 +523,31 @@
     systemAudioEl.addEventListener('change', () => {
       if (systemAudioEl.checked) enableSystemAudio(); else stopSystemAudio();
     });
+
+    // Clear feedback buffers utility
+    function clearFeedback() {
+      if (!gl) return;
+      try {
+        const w = canvas.width, h = canvas.height;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbA || null);
+        gl.viewport(0,0,w,h);
+        gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbB || null);
+        gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        // reset ping to a known state
+        window._fbPing = 0;
+        console.log('[FB] Cleared feedback buffers');
+      } catch (e) { console.warn('[FB] clear failed', e); }
+    }
+
+    // Wire clear button and auto-clear when FB is enabled
+    if (fbClearBtn) {
+      fbClearBtn.addEventListener('click', () => { clearFeedback(); });
+    }
+    if (fbOn) {
+      fbOn.addEventListener('change', () => { if (fbOn.checked) clearFeedback(); });
+    }
 
     
 
@@ -1011,8 +1046,13 @@
     uniform sampler2D uScene;
     uniform sampler2D uBloom;
     uniform sampler2D uDepth;
-    uniform float uStrength;
+  uniform float uStrength;
     uniform float uBrightness;
+  // Frame feedback
+  uniform sampler2D uFeedbackTex;
+  uniform bool uFbOn;
+  uniform float uFbAmt;
+  uniform float uFbDecay;
 
     uniform bool uDOFOn;
     uniform float uNear, uFar;
@@ -1022,6 +1062,10 @@
   uniform bool uPixOn; uniform float uPixSize;
   uniform bool uPostOn; uniform float uPostLevels;
   uniform float uTime;
+  // VHS ghosting (samples previous-frame feedback with offsets)
+  uniform bool uVhsGhostOn;
+  uniform float uVhsGhostAmt;
+  uniform float uVhsGhostOffset;
   uniform bool uCAOn; uniform float uCAAmt;
 
     out vec4 FragColor;
@@ -1079,7 +1123,7 @@
       }
 
       // Apply chromatic aberration by sampling the DOF-processed scene at slight RGB offsets
-      vec3 color;
+  vec3 color;
       if (uCAOn) {
         vec3 rs = sampleSceneWithDOF(clamp(uv + caOff, vec2(0.0), vec2(1.0)), res);
         vec3 gs = sampleSceneWithDOF(clamp(uv, vec2(0.0), vec2(1.0)), res);
@@ -1093,6 +1137,29 @@
       if (uPostOn) {
         float levels = max(2.0, uPostLevels);
         color = floor(color * levels) / levels;
+      }
+
+      // Blend in previous frame feedback (ping-pong) if enabled
+      if (uFbOn) {
+        vec3 prev = texture(uFeedbackTex, vUV).rgb;
+        // feedback: previous frame decayed then mixed
+        color = mix(color, prev * uFbDecay, uFbAmt);
+
+        // VHS ghosting: sample displaced previous-frame copies to create horizontal ghosts
+        if (uVhsGhostOn) {
+          // sample a couple of horizontally offset ghosts and additively blend
+          vec2 off = vec2(uVhsGhostOffset, 0.0);
+          // subtle jitter based on uv/time to avoid perfectly static ghosts
+          float j = (hash(vUV + vec2(uTime * 0.37, uTime * 0.73)) - 0.5) * 0.5;
+          vec3 g1 = texture(uFeedbackTex, clamp(vUV + off * (1.0 + j), vec2(0.0), vec2(1.0))).rgb;
+          vec3 g2 = texture(uFeedbackTex, clamp(vUV - off * (1.3 - j), vec2(0.0), vec2(1.0))).rgb;
+          vec3 ghost = 0.5 * (g1 + g2);
+          // partially desaturate ghost to mimic smeared luminance ghosts
+          float lum = dot(ghost, vec3(0.3333));
+          ghost = mix(vec3(lum), ghost, 0.6);
+          // additive blend scaled by ghost amount and feedback decay
+          color += ghost * uVhsGhostAmt * uFbDecay;
+        }
       }
 
       if (uVigOn) {
@@ -1176,7 +1243,7 @@
       if (uWobOn == 1 && uWobAmt > 0.0) {
         float y = curUV.y;
         float phase = hash1(floor(y * 256.0));
-        float wob = sin((y * 6.0 + uTime * uWobSpeed) * 6.2831853 + phase * 6.2831853) * uWobAmt;
+  float wob = sin((y * 6.0 + uTime * uWobSpeed) * 6.2831853 + phase * 6.2831853) * uWobAmt * 0.5;
         curUV.x += wob;
       }
 
@@ -1271,10 +1338,17 @@
       uFocus: gl.getUniformLocation(progComp, 'uFocus'),
       uRange: gl.getUniformLocation(progComp, 'uRange'),
       uDOFBlur: gl.getUniformLocation(progComp, 'uDOFBlur'),
-      uVigOn: gl.getUniformLocation(progComp, 'uVigOn'),
+    uVigOn: gl.getUniformLocation(progComp, 'uVigOn'),
       uVigAmt: gl.getUniformLocation(progComp, 'uVigAmt'),
-      uGrainOn: gl.getUniformLocation(progComp, 'uGrainOn'),
-      uGrainAmt: gl.getUniformLocation(progComp, 'uGrainAmt'),
+    uGrainOn: gl.getUniformLocation(progComp, 'uGrainOn'),
+    uGrainAmt: gl.getUniformLocation(progComp, 'uGrainAmt'),
+    uFeedbackTex: gl.getUniformLocation(progComp, 'uFeedbackTex'),
+    uFbOn: gl.getUniformLocation(progComp, 'uFbOn'),
+    uFbAmt: gl.getUniformLocation(progComp, 'uFbAmt'),
+    uFbDecay: gl.getUniformLocation(progComp, 'uFbDecay'),
+  uVhsGhostOn: gl.getUniformLocation(progComp, 'uVhsGhostOn'),
+  uVhsGhostAmt: gl.getUniformLocation(progComp, 'uVhsGhostAmt'),
+  uVhsGhostOffset: gl.getUniformLocation(progComp, 'uVhsGhostOffset'),
       uPixOn: gl.getUniformLocation(progComp, 'uPixOn'),
       uPixSize: gl.getUniformLocation(progComp, 'uPixSize'),
       uPostOn: gl.getUniformLocation(progComp, 'uPostOn'),
@@ -1411,6 +1485,37 @@
   gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, postTex, 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // Feedback ping-pong targets
+  if (!window._fbTexA) window._fbTexA = null;
+  if (!window._fbTexB) window._fbTexB = null;
+  if (window._fbTexA) gl.deleteTexture(window._fbTexA);
+  if (window._fbTexB) gl.deleteTexture(window._fbTexB);
+  window._fbTexA = makeColorTex(w,h);
+  window._fbTexB = makeColorTex(w,h);
+  // Framebuffers for feedback
+  if (!window._fbA) window._fbA = null; if (!window._fbB) window._fbB = null;
+  if (window._fbA) gl.deleteFramebuffer(window._fbA);
+  if (window._fbB) gl.deleteFramebuffer(window._fbB);
+  window._fbA = gl.createFramebuffer(); window._fbB = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbA);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, window._fbTexA, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, window._fbTexB, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // Clear freshly allocated feedback textures to black to avoid first-frame garbage
+  try {
+    if (window._fbA && window._fbTexA) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbA);
+      gl.viewport(0,0,w,h);
+      gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    if (window._fbB && window._fbTexB) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbB);
+      gl.viewport(0,0,w,h);
+      gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  } catch(e){ console.warn('[FB] clear during alloc failed', e); }
   // one-pixel black texture used as a safe 'no-bloom' sampler
   if (!blackTex) {
     blackTex = gl.createTexture();
@@ -2195,6 +2300,25 @@
   // animated grain time
   gl.uniform1f(locComp.uTime, t);
 
+        // Bind feedback texture (ping-pong read) if available
+        if (window._fbTexA && window._fbTexB) {
+          // choose which texture is 'read' this frame; default to _fbTexA when not set
+          if (typeof window._fbPing === 'undefined') window._fbPing = 0;
+          const readTex = window._fbPing === 0 ? window._fbTexA : window._fbTexB;
+          gl.activeTexture(gl.TEXTURE3);
+          gl.bindTexture(gl.TEXTURE_2D, readTex);
+          if (locComp.uFeedbackTex) gl.uniform1i(locComp.uFeedbackTex, 3);
+          if (locComp.uFbOn) gl.uniform1i(locComp.uFbOn, fbOn?.checked ? 1 : 0);
+          if (locComp.uFbAmt) gl.uniform1f(locComp.uFbAmt, parseFloat(fbAmt?.value || '0.0'));
+          if (locComp.uFbDecay) gl.uniform1f(locComp.uFbDecay, parseFloat(fbDecay?.value || '0.95'));
+          // VHS ghosting uniforms: reuse VHS controls if available, otherwise defaults
+          if (locComp.uVhsGhostOn) gl.uniform1i(locComp.uVhsGhostOn, (vhsOnEl?.checked && fbOn?.checked) ? 1 : 0);
+          if (locComp.uVhsGhostAmt) gl.uniform1f(locComp.uVhsGhostAmt, parseFloat(vhsAmt?.value || '0.15'));
+          if (locComp.uVhsGhostOffset) gl.uniform1f(locComp.uVhsGhostOffset, parseFloat(vhsAmt?.value || '0.015'));
+        } else {
+          if (locComp.uFbOn) gl.uniform1i(locComp.uFbOn, 0);
+        }
+
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, sceneTex);
         gl.uniform1i(locComp.uScene, 0);
@@ -2238,6 +2362,24 @@
         gl.uniform1i(locComp.uPostOn, postOnEl.checked ? 1 : 0);
         gl.uniform1f(locComp.uPostLevels, parseFloat(postLevEl.value));
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        // Copy postTex into write-feedback framebuffer for next-frame reads
+        if (window._fbTexA && window._fbTexB && window._fbA && window._fbB) {
+          const writeFB = window._fbPing === 0 ? window._fbB : window._fbA;
+          gl.bindFramebuffer(gl.FRAMEBUFFER, writeFB);
+          gl.viewport(0,0,canvas.width,canvas.height);
+          gl.useProgram(progDown);
+          gl.bindVertexArray(vaoQuad);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, postTex);
+          gl.uniform1i(locDown.uTex, 0);
+          gl.uniform1f(locDown.uThreshold, 0.0);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          // restore postFB as current render target
+          gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
+          // flip ping
+          window._fbPing = (window._fbPing === 0) ? 1 : 0;
+        }
 
         // 4) Final pass: distortion (if enabled) or blit to screen
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
