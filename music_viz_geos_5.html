@@ -932,6 +932,7 @@
     uniform bool uGrainOn; uniform float uGrainAmt;
     uniform bool uPixOn; uniform float uPixSize;
     uniform bool uPostOn; uniform float uPostLevels;
+  uniform float uTime;
 
     out vec4 FragColor;
 
@@ -990,7 +991,10 @@
       }
 
       if (uGrainOn) {
-        float g = (hash(vUV * res + fract(vec2(gl_FragCoord.xy))) - 0.5) * 2.0 * uGrainAmt;
+        // Animated grain: incorporate time so the noise changes each frame
+        // Use uTime scaled to create perceptually pleasing flicker
+        vec2 seed = vUV * res + vec2(uTime * 12.9898, uTime * 78.233);
+        float g = (hash(seed) - 0.5) * 2.0 * uGrainAmt;
         color += g;
       }
 
@@ -1030,6 +1034,7 @@
       uPixSize: gl.getUniformLocation(progComp, 'uPixSize'),
       uPostOn: gl.getUniformLocation(progComp, 'uPostOn'),
       uPostLevels: gl.getUniformLocation(progComp, 'uPostLevels'),
+  uTime: gl.getUniformLocation(progComp, 'uTime'),
     };
 
     // Fullscreen quad
@@ -1679,10 +1684,14 @@
     // Rendering
     let lastTime = performance.now();
     const lightDir = [-0.4, 0.8, 0.4];
+  const startTime = performance.now();
 
     function draw(now) {
       const dt = Math.min(0.05, (now - lastTime) / 1000);
       lastTime = now;
+
+  // Pass animated time to post FX shader for grain animation
+  const t = (performance.now() - startTime) * 0.001;
 
       if (autoRotOnEl.checked && camera.mode==='orbit') {
         camera.yaw += (parseFloat(autoRotSpeedEl.value) * Math.PI/180) * dt;
@@ -1859,6 +1868,9 @@
         gl.disable(gl.DEPTH_TEST);
         gl.useProgram(progComp);
         gl.bindVertexArray(vaoQuad);
+
+  // animated grain time
+  gl.uniform1f(locComp.uTime, t);
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, sceneTex);
