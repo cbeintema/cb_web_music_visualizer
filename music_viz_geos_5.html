@@ -1360,9 +1360,104 @@
     fileInput.addEventListener('change', () => {
       const f = fileInput.files && fileInput.files[0]; if (!f) return;
       const url = URL.createObjectURL(f); audio.src = url; audio.load();
+      // Auto play after load for convenience (will succeed due to user gesture selecting file)
+  ensureAudio();
+  audio.play().then(()=>console.log('[Audio] Playing selected file')).catch(err=>console.warn('[Audio] Autoplay failed', err));
     });
-    playBtn.addEventListener('click', async () => { ensureAudio(); await audioCtx.resume(); audio.play(); });
-    pauseBtn.addEventListener('click', () => audio.pause());
+    // Playback button handlers
+    function updatePlaybackButtons(){
+      const canPlay = !!audio.src || systemAudioOn;
+      playBtn.disabled = !canPlay || !audio.paused;
+      pauseBtn.disabled = !canPlay || audio.paused;
+    }
+    playBtn.addEventListener('click', async () => {
+      if (!audio.src && !systemAudioOn) {
+        console.warn('[Audio] No audio source. Load a file or enable System Audio.');
+        return;
+      }
+      ensureAudio();
+      try { await audioCtx.resume(); } catch(_){}
+      if (!systemAudioOn) {
+        audio.play().then(()=>console.log('[Audio] Play pressed')).catch(err=>console.warn('[Audio] Play failed', err));
+      } else {
+        console.log('[Audio] System audio capture active; context resumed');
+      }
+      updatePlaybackButtons();
+    });
+    pauseBtn.addEventListener('click', () => {
+      if (!systemAudioOn) audio.pause();
+      // For system audio, we keep analyser running; optional: suspend context
+      console.log('[Audio] Pause pressed');
+      updatePlaybackButtons();
+    });
+
+    // Reflect play/pause state in buttons
+  pauseBtn.disabled = true;
+  audio.addEventListener('play', () => { updatePlaybackButtons(); });
+  audio.addEventListener('pause', () => { updatePlaybackButtons(); });
+  fileInput.addEventListener('change', () => setTimeout(updatePlaybackButtons, 50));
+  systemAudioEl.addEventListener('change', () => { setTimeout(updatePlaybackButtons, 50); });
+  updatePlaybackButtons();
+
+    // --- Preset Save / Load ---
+    function collectPreset(){
+      const data = {};
+      ui.querySelectorAll('input, select').forEach(el => {
+        if (!el.id) return;
+        if (el === fileInput || el === presetFileEl) return; // skip file pickers
+        if (el.type === 'checkbox') data[el.id] = !!el.checked;
+        else data[el.id] = el.value;
+      });
+      // Persist learned MIDI map if present
+      try { data.__midiMap = JSON.stringify(midiMap); } catch(_){}
+      return { _format: 'music_viz_preset', version: 2, created: new Date().toISOString(), data };
+    }
+    function applyPreset(preset){
+      console.log('[Preset] Loading preset...', preset);
+      if (!preset || preset._format !== 'music_viz_preset') { console.warn('Invalid preset file'); return; }
+      const data = preset.data || {};
+      Object.keys(data).forEach(id => {
+        if (id === '__midiMap') return;
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.type === 'checkbox') {
+          el.checked = !!data[id];
+          el.dispatchEvent(new Event('change', { bubbles:true }));
+        } else {
+          el.value = data[id];
+          el.dispatchEvent(new Event('input', { bubbles:true }));
+          el.dispatchEvent(new Event('change', { bubbles:true }));
+        }
+      });
+      if (data.__midiMap) {
+        try { const m = JSON.parse(data.__midiMap); Object.assign(midiMap, m); localStorage.setItem('midiLearnMap', JSON.stringify(midiMap)); } catch(_){}
+      }
+      // Re-frame object in case geometry scaling changed
+      frameObject();
+      console.log('[Preset] Applied');
+    }
+    presetSaveBtn.addEventListener('click', () => {
+      const preset = collectPreset();
+      const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'music_viz_preset.json';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    });
+    presetLoadBtn.addEventListener('click', () => presetFileEl.click());
+  presetFileEl.addEventListener('change', () => {
+      const f = presetFileEl.files && presetFileEl.files[0]; if (!f) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+    try { const json = JSON.parse(e.target.result); applyPreset(json); }
+    catch(err){ console.error('Failed to load preset', err); }
+      };
+      reader.readAsText(f);
+      // reset input so same file can be reloaded if desired
+      presetFileEl.value = '';
+    });
 
     // Fullscreen helpers
     function toggleFullscreen() {
