@@ -7,40 +7,40 @@
 	objects = {
 
 /* Begin PBXContainerItemProxy section */
-		C47FC1102E5A84C90066F4FF /* PBXContainerItemProxy */ = {
+		C4BFFAF22E5A870900A47B93 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = C47FC0F92E5A84C80066F4FF /* Project object */;
+			containerPortal = C4BFFADB2E5A870700A47B93 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = C47FC1002E5A84C80066F4FF;
+			remoteGlobalIDString = C4BFFAE22E5A870700A47B93;
 			remoteInfo = vizscrambler;
 		};
-		C47FC11A2E5A84C90066F4FF /* PBXContainerItemProxy */ = {
+		C4BFFAFC2E5A870900A47B93 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = C47FC0F92E5A84C80066F4FF /* Project object */;
+			containerPortal = C4BFFADB2E5A870700A47B93 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = C47FC1002E5A84C80066F4FF;
+			remoteGlobalIDString = C4BFFAE22E5A870700A47B93;
 			remoteInfo = vizscrambler;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		C47FC1012E5A84C80066F4FF /* vizscrambler.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vizscrambler.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C47FC10F2E5A84C90066F4FF /* vizscramblerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vizscramblerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C47FC1192E5A84C90066F4FF /* vizscramblerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vizscramblerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4BFFAE32E5A870700A47B93 /* vizscrambler.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vizscrambler.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4BFFAF12E5A870900A47B93 /* vizscramblerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vizscramblerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4BFFAFB2E5A870900A47B93 /* vizscramblerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vizscramblerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		C47FC1032E5A84C80066F4FF /* vizscrambler */ = {
+		C4BFFAE52E5A870700A47B93 /* vizscrambler */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = vizscrambler;
 			sourceTree = "<group>";
 		};
-		C47FC1122E5A84C90066F4FF /* vizscramblerTests */ = {
+		C4BFFAF42E5A870900A47B93 /* vizscramblerTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = vizscramblerTests;
 			sourceTree = "<group>";
 		};
-		C47FC11C2E5A84C90066F4FF /* vizscramblerUITests */ = {
+		C4BFFAFE2E5A870900A47B93 /* vizscramblerUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = vizscramblerUITests;
 			sourceTree = "<group>";
@@ -48,21 +48,21 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		C47FC0FE2E5A84C80066F4FF /* Frameworks */ = {
+		C4BFFAE02E5A870700A47B93 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C47FC10C2E5A84C90066F4FF /* Frameworks */ = {
+		C4BFFAEE2E5A870900A47B93 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C47FC1162E5A84C90066F4FF /* Frameworks */ = {
+		C4BFFAF82E5A870900A47B93 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -72,22 +72,22 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		C47FC0F82E5A84C80066F4FF = {
+		C4BFFADA2E5A870700A47B93 = {
 			isa = PBXGroup;
 			children = (
-				C47FC1032E5A84C80066F4FF /* vizscrambler */,
-				C47FC1122E5A84C90066F4FF /* vizscramblerTests */,
-				C47FC11C2E5A84C90066F4FF /* vizscramblerUITests */,
-				C47FC1022E5A84C80066F4FF /* Products */,
+				C4BFFAE52E5A870700A47B93 /* vizscrambler */,
+				C4BFFAF42E5A870900A47B93 /* vizscramblerTests */,
+				C4BFFAFE2E5A870900A47B93 /* vizscramblerUITests */,
+				C4BFFAE42E5A870700A47B93 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		C47FC1022E5A84C80066F4FF /* Products */ = {
+		C4BFFAE42E5A870700A47B93 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C47FC1012E5A84C80066F4FF /* vizscrambler.app */,
-				C47FC10F2E5A84C90066F4FF /* vizscramblerTests.xctest */,
-				C47FC1192E5A84C90066F4FF /* vizscramblerUITests.xctest */,
+				C4BFFAE32E5A870700A47B93 /* vizscrambler.app */,
+				C4BFFAF12E5A870900A47B93 /* vizscramblerTests.xctest */,
+				C4BFFAFB2E5A870900A47B93 /* vizscramblerUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,134 +95,134 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C47FC1002E5A84C80066F4FF /* vizscrambler */ = {
+		C4BFFAE22E5A870700A47B93 /* vizscrambler */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C47FC1232E5A84C90066F4FF /* Build configuration list for PBXNativeTarget "vizscrambler" */;
+			buildConfigurationList = C4BFFB052E5A870900A47B93 /* Build configuration list for PBXNativeTarget "vizscrambler" */;
 			buildPhases = (
-				C47FC0FD2E5A84C80066F4FF /* Sources */,
-				C47FC0FE2E5A84C80066F4FF /* Frameworks */,
-				C47FC0FF2E5A84C80066F4FF /* Resources */,
+				C4BFFADF2E5A870700A47B93 /* Sources */,
+				C4BFFAE02E5A870700A47B93 /* Frameworks */,
+				C4BFFAE12E5A870700A47B93 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				C47FC1032E5A84C80066F4FF /* vizscrambler */,
+				C4BFFAE52E5A870700A47B93 /* vizscrambler */,
 			);
 			name = vizscrambler;
 			packageProductDependencies = (
 			);
 			productName = vizscrambler;
-			productReference = C47FC1012E5A84C80066F4FF /* vizscrambler.app */;
+			productReference = C4BFFAE32E5A870700A47B93 /* vizscrambler.app */;
 			productType = "com.apple.product-type.application";
 		};
-		C47FC10E2E5A84C90066F4FF /* vizscramblerTests */ = {
+		C4BFFAF02E5A870900A47B93 /* vizscramblerTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C47FC1262E5A84C90066F4FF /* Build configuration list for PBXNativeTarget "vizscramblerTests" */;
+			buildConfigurationList = C4BFFB082E5A870900A47B93 /* Build configuration list for PBXNativeTarget "vizscramblerTests" */;
 			buildPhases = (
-				C47FC10B2E5A84C90066F4FF /* Sources */,
-				C47FC10C2E5A84C90066F4FF /* Frameworks */,
-				C47FC10D2E5A84C90066F4FF /* Resources */,
+				C4BFFAED2E5A870900A47B93 /* Sources */,
+				C4BFFAEE2E5A870900A47B93 /* Frameworks */,
+				C4BFFAEF2E5A870900A47B93 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				C47FC1112E5A84C90066F4FF /* PBXTargetDependency */,
+				C4BFFAF32E5A870900A47B93 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				C47FC1122E5A84C90066F4FF /* vizscramblerTests */,
+				C4BFFAF42E5A870900A47B93 /* vizscramblerTests */,
 			);
 			name = vizscramblerTests;
 			packageProductDependencies = (
 			);
 			productName = vizscramblerTests;
-			productReference = C47FC10F2E5A84C90066F4FF /* vizscramblerTests.xctest */;
+			productReference = C4BFFAF12E5A870900A47B93 /* vizscramblerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		C47FC1182E5A84C90066F4FF /* vizscramblerUITests */ = {
+		C4BFFAFA2E5A870900A47B93 /* vizscramblerUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C47FC1292E5A84C90066F4FF /* Build configuration list for PBXNativeTarget "vizscramblerUITests" */;
+			buildConfigurationList = C4BFFB0B2E5A870900A47B93 /* Build configuration list for PBXNativeTarget "vizscramblerUITests" */;
 			buildPhases = (
-				C47FC1152E5A84C90066F4FF /* Sources */,
-				C47FC1162E5A84C90066F4FF /* Frameworks */,
-				C47FC1172E5A84C90066F4FF /* Resources */,
+				C4BFFAF72E5A870900A47B93 /* Sources */,
+				C4BFFAF82E5A870900A47B93 /* Frameworks */,
+				C4BFFAF92E5A870900A47B93 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				C47FC11B2E5A84C90066F4FF /* PBXTargetDependency */,
+				C4BFFAFD2E5A870900A47B93 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				C47FC11C2E5A84C90066F4FF /* vizscramblerUITests */,
+				C4BFFAFE2E5A870900A47B93 /* vizscramblerUITests */,
 			);
 			name = vizscramblerUITests;
 			packageProductDependencies = (
 			);
 			productName = vizscramblerUITests;
-			productReference = C47FC1192E5A84C90066F4FF /* vizscramblerUITests.xctest */;
+			productReference = C4BFFAFB2E5A870900A47B93 /* vizscramblerUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		C47FC0F92E5A84C80066F4FF /* Project object */ = {
+		C4BFFADB2E5A870700A47B93 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1640;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
-					C47FC1002E5A84C80066F4FF = {
+					C4BFFAE22E5A870700A47B93 = {
 						CreatedOnToolsVersion = 16.4;
 					};
-					C47FC10E2E5A84C90066F4FF = {
+					C4BFFAF02E5A870900A47B93 = {
 						CreatedOnToolsVersion = 16.4;
-						TestTargetID = C47FC1002E5A84C80066F4FF;
+						TestTargetID = C4BFFAE22E5A870700A47B93;
 					};
-					C47FC1182E5A84C90066F4FF = {
+					C4BFFAFA2E5A870900A47B93 = {
 						CreatedOnToolsVersion = 16.4;
-						TestTargetID = C47FC1002E5A84C80066F4FF;
+						TestTargetID = C4BFFAE22E5A870700A47B93;
 					};
 				};
 			};
-			buildConfigurationList = C47FC0FC2E5A84C80066F4FF /* Build configuration list for PBXProject "vizscrambler" */;
+			buildConfigurationList = C4BFFADE2E5A870700A47B93 /* Build configuration list for PBXProject "vizscrambler" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = C47FC0F82E5A84C80066F4FF;
+			mainGroup = C4BFFADA2E5A870700A47B93;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = C47FC1022E5A84C80066F4FF /* Products */;
+			productRefGroup = C4BFFAE42E5A870700A47B93 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C47FC1002E5A84C80066F4FF /* vizscrambler */,
-				C47FC10E2E5A84C90066F4FF /* vizscramblerTests */,
-				C47FC1182E5A84C90066F4FF /* vizscramblerUITests */,
+				C4BFFAE22E5A870700A47B93 /* vizscrambler */,
+				C4BFFAF02E5A870900A47B93 /* vizscramblerTests */,
+				C4BFFAFA2E5A870900A47B93 /* vizscramblerUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C47FC0FF2E5A84C80066F4FF /* Resources */ = {
+		C4BFFAE12E5A870700A47B93 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C47FC10D2E5A84C90066F4FF /* Resources */ = {
+		C4BFFAEF2E5A870900A47B93 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C47FC1172E5A84C90066F4FF /* Resources */ = {
+		C4BFFAF92E5A870900A47B93 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -232,21 +232,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		C47FC0FD2E5A84C80066F4FF /* Sources */ = {
+		C4BFFADF2E5A870700A47B93 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C47FC10B2E5A84C90066F4FF /* Sources */ = {
+		C4BFFAED2E5A870900A47B93 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C47FC1152E5A84C90066F4FF /* Sources */ = {
+		C4BFFAF72E5A870900A47B93 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -256,20 +256,20 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		C47FC1112E5A84C90066F4FF /* PBXTargetDependency */ = {
+		C4BFFAF32E5A870900A47B93 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C47FC1002E5A84C80066F4FF /* vizscrambler */;
-			targetProxy = C47FC1102E5A84C90066F4FF /* PBXContainerItemProxy */;
+			target = C4BFFAE22E5A870700A47B93 /* vizscrambler */;
+			targetProxy = C4BFFAF22E5A870900A47B93 /* PBXContainerItemProxy */;
 		};
-		C47FC11B2E5A84C90066F4FF /* PBXTargetDependency */ = {
+		C4BFFAFD2E5A870900A47B93 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C47FC1002E5A84C80066F4FF /* vizscrambler */;
-			targetProxy = C47FC11A2E5A84C90066F4FF /* PBXContainerItemProxy */;
+			target = C4BFFAE22E5A870700A47B93 /* vizscrambler */;
+			targetProxy = C4BFFAFC2E5A870900A47B93 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		C47FC1212E5A84C90066F4FF /* Debug */ = {
+		C4BFFB032E5A870900A47B93 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -330,7 +330,7 @@
 			};
 			name = Debug;
 		};
-		C47FC1222E5A84C90066F4FF /* Release */ = {
+		C4BFFB042E5A870900A47B93 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -383,7 +383,7 @@
 			};
 			name = Release;
 		};
-		C47FC1242E5A84C90066F4FF /* Debug */ = {
+		C4BFFB062E5A870900A47B93 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -420,7 +420,7 @@
 			};
 			name = Debug;
 		};
-		C47FC1252E5A84C90066F4FF /* Release */ = {
+		C4BFFB072E5A870900A47B93 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -457,7 +457,7 @@
 			};
 			name = Release;
 		};
-		C47FC1272E5A84C90066F4FF /* Debug */ = {
+		C4BFFB092E5A870900A47B93 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -479,7 +479,7 @@
 			};
 			name = Debug;
 		};
-		C47FC1282E5A84C90066F4FF /* Release */ = {
+		C4BFFB0A2E5A870900A47B93 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -501,7 +501,7 @@
 			};
 			name = Release;
 		};
-		C47FC12A2E5A84C90066F4FF /* Debug */ = {
+		C4BFFB0C2E5A870900A47B93 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -522,7 +522,7 @@
 			};
 			name = Debug;
 		};
-		C47FC12B2E5A84C90066F4FF /* Release */ = {
+		C4BFFB0D2E5A870900A47B93 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -546,43 +546,43 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C47FC0FC2E5A84C80066F4FF /* Build configuration list for PBXProject "vizscrambler" */ = {
+		C4BFFADE2E5A870700A47B93 /* Build configuration list for PBXProject "vizscrambler" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C47FC1212E5A84C90066F4FF /* Debug */,
-				C47FC1222E5A84C90066F4FF /* Release */,
+				C4BFFB032E5A870900A47B93 /* Debug */,
+				C4BFFB042E5A870900A47B93 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C47FC1232E5A84C90066F4FF /* Build configuration list for PBXNativeTarget "vizscrambler" */ = {
+		C4BFFB052E5A870900A47B93 /* Build configuration list for PBXNativeTarget "vizscrambler" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C47FC1242E5A84C90066F4FF /* Debug */,
-				C47FC1252E5A84C90066F4FF /* Release */,
+				C4BFFB062E5A870900A47B93 /* Debug */,
+				C4BFFB072E5A870900A47B93 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C47FC1262E5A84C90066F4FF /* Build configuration list for PBXNativeTarget "vizscramblerTests" */ = {
+		C4BFFB082E5A870900A47B93 /* Build configuration list for PBXNativeTarget "vizscramblerTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C47FC1272E5A84C90066F4FF /* Debug */,
-				C47FC1282E5A84C90066F4FF /* Release */,
+				C4BFFB092E5A870900A47B93 /* Debug */,
+				C4BFFB0A2E5A870900A47B93 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C47FC1292E5A84C90066F4FF /* Build configuration list for PBXNativeTarget "vizscramblerUITests" */ = {
+		C4BFFB0B2E5A870900A47B93 /* Build configuration list for PBXNativeTarget "vizscramblerUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C47FC12A2E5A84C90066F4FF /* Debug */,
-				C47FC12B2E5A84C90066F4FF /* Release */,
+				C4BFFB0C2E5A870900A47B93 /* Debug */,
+				C4BFFB0D2E5A870900A47B93 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = C47FC0F92E5A84C80066F4FF /* Project object */;
+	rootObject = C4BFFADB2E5A870700A47B93 /* Project object */;
 }

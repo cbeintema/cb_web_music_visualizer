@@ -1,0 +1,2555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GPU Geometry EQ Visualizer (Gradients • Fullscreen • FlyCam • MIDI • AutoRotate)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html, body { margin:0; height:100%; background:#050510; overflow:hidden; font-family:system-ui, sans-serif; }
+    canvas { display:block; width:100vw; height:100vh; cursor:grab; position:fixed; inset:0; z-index:0; }  /* ensure behind UI */
+
+    /* Sidebar UI */
+    .ui {
+      position:fixed;
+      top:12px; bottom:12px; left:12px;
+      width:340px;
+      display:flex; flex-direction:column; gap:12px; align-items:stretch;
+      background:rgba(10,10,20,0.55);
+      padding:12px; border-radius:12px; backdrop-filter: blur(6px);
+      color:#e6e6f0; font-size:14px;
+      overflow:auto;                         /* sidebar scrolls if needed */
+      max-height: calc(100vh - 24px);        /* ensure full viewport fit */
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+    .ui.off { opacity:0; pointer-events:none; transform: translateX(-12px); }
+
+    /* Controls */
+    .section {
+      background:rgba(20,20,35,0.6);
+      border:1px solid #2b2b45;
+      border-radius:10px;
+      overflow:visible;                      /* was hidden; avoid clipping */
+      display:block;
+    }
+    .section > summary {
+      list-style:none; cursor:pointer; padding:10px 12px; user-select:none;
+      font-weight:600; background:linear-gradient(0deg, rgba(40,40,70,0.35), rgba(40,40,70,0.15));
+    }
+    .section > summary::-webkit-details-marker { display:none; }
+    .section .content {
+      display:flex; flex-direction:column; gap:10px; padding:10px 12px;
+      overflow:visible;                      /* allow full content to show */
+    }
+
+    /* Scrollable variant for large sections */
+    .section.scroll .content {
+      max-height: 60vh;                      /* section gets its own scrollbar if tall */
+      overflow:auto;
+    }
+
+    label, select, button, input[type="color"] {
+      background:#1b1b2b; color:#e6e6f0; border:1px solid #2b2b45; border-radius:8px; padding:6px 8px; cursor:pointer;
+    }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .row > * { flex: 1 1 140px; min-width:0; } /* ensure wrap, prevent inner clipping */
+    label.inline { display:flex; align-items:center; gap:6px; }
+    .full { width:100%; }
+    .stack { display:flex; flex-direction:column; gap:4px; }
+    .ui input[type="range"] { width:100%; }
+    input[type="file"] { background:#1b1b2b; color:#e6e6f0; border:1px solid #2b2b45; border-radius:8px; padding:6px; }
+    .note { opacity:0.8; font-size:12px; padding:6px 8px; border:1px dashed #2b2b45; border-radius:8px; }
+
+    /* Add learn highlight styles */
+    .ui.learn { outline: 2px solid #6a6aff; }
+    .learn-target { outline:2px solid #6a6aff; }
+  </style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <div class="ui" id="ui">
+    <!-- Playback (unchanged) -->
+    <details class="section">
+      <summary>Playback</summary>
+      <div class="content">
+        <div class="row">
+          <input id="file" type="file" accept="audio/*" class="full" />
+        </div>
+        <div class="row">
+          <label class="inline full">System Audio <input id="systemAudio" type="checkbox"></label>
+        </div>
+        <div class="row">
+          <button id="play" class="full">Play</button>
+          <button id="pause" class="full">Pause</button>
+        </div>
+        <!-- Save/Load Preset -->
+        <div class="row">
+          <button id="presetSave" class="full">Save Preset</button>
+          <button id="presetLoad" class="full">Load Preset</button>
+          <input id="presetFile" type="file" accept="application/json" style="display:none">
+        </div>
+        <div class="row">
+          <label class="inline full">Debug Output <input id="debugOn" type="checkbox"></label>
+        </div>
+        <label class="inline full">Background <input id="bgColor" type="color" value="#050510"></label>
+        <label class="stack full">Brightness <input id="bright" type="range" min="0.4" max="2" step="0.01" value="1.1"></label>
+      </div>
+    </details>
+
+    <!-- New: MIDI -->
+    <details class="section">
+      <summary>MIDI</summary>
+      <div class="content">
+        <label class="inline">MIDI <input id="midiOn" type="checkbox"></label>
+        <label class="inline">MIDI Learn <input id="midiLearn" type="checkbox"></label>
+        <div id="midiStatus" style="font-size:12px; line-height:1.3; opacity:0.8;"></div>
+      </div>
+    </details>
+
+    <!-- Geometry -->
+    <details class="section">
+      <summary>Geometry</summary>
+      <div class="content">
+        <div class="row">
+          <label class="stack full">Shape
+            <select id="shape">
+              <option value="plane">Plane</option>
+              <option value="sphere">Sphere</option>
+              <option value="cube">Cube</option>
+              <option value="pyramid">Pyramid</option>
+            </select>
+          </label>
+        </div>
+        <label class="stack full">Geo Res % <input id="geoRes" type="range" min="20" max="100" step="1" value="100"></label>
+        <div class="row">
+          <label class="stack full">Scale X <input id="sx" type="range" min="0.2" max="5" step="0.01" value="1.0"></label>
+          <label class="stack full">Scale Y <input id="sy" type="range" min="0.2" max="5" step="0.01" value="1.0"></label>
+          <label class="stack full">Scale Z <input id="sz" type="range" min="0.2" max="5" step="0.01" value="1.0"></label>
+        </div>
+        <div class="row">
+          <label>Height Axis
+            <select id="axis">
+              <option value="y" selected>Y</option>
+              <option value="x">X</option>
+              <option value="z">Z</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </details>
+
+    <!-- Deformation -->
+    <details class="section">
+      <summary>Deformation</summary>
+      <div class="content">
+        <label class="stack full">Height <input id="height" type="range" min="0.0" max="5" step="0.01" value="0.10"></label>
+        <label class="stack full">Speed <input id="speed" type="range" min="0.2" max="3" step="0.01" value="1.0"></label>
+        <div class="row">
+          <label>Leading
+            <select id="leading">
+              <option value="u0">Left (U=0)</option>
+              <option value="u1">Right (U=1)</option>
+              <option value="v0" selected>Near/Top (V=0)</option>
+              <option value="v1">Far/Bottom (V=1)</option>
+            </select>
+          </label>
+          <label class="inline">Auto Norm <input id="autoNorm" type="checkbox"></label>
+          <label class="inline">Log Freq <input id="logFreq" type="checkbox" checked></label>
+        </div>
+        <label class="stack full">Tilt <input id="tilt" type="range" min="-1" max="1" step="0.01" value="0.00"></label>
+      </div>
+    </details>
+
+    <!-- Shading -->
+    <details class="section scroll">
+      <summary>Shading</summary>
+      <div class="content">
+        <div class="row">
+          <label class="inline">Fill <input id="fillOn" type="checkbox" checked></label>
+          <input id="fillColor" type="color" value="#4cc3ff">
+          <label class="inline">Fill Grad <input id="fillGradOn" type="checkbox"></label>
+        </div>
+        <div class="row">
+          <label class="inline">A <input id="fillColA" type="color" value="#4cc3ff"></label>
+          <label class="inline">B <input id="fillColB" type="color" value="#ff5cd6"></label>
+          <label class="stack full">Angle° <input id="fillAngle" type="range" min="0" max="360" step="1" value="0"></label>∏
+        </div>
+
+        <div class="row">
+          <label class="inline">Wire <input id="wireOn" type="checkbox" checked></label>
+          <input id="wireColor" type="color" value="#ffffff">
+          <label class="inline">Wire Grad <input id="wireGradOn" type="checkbox"></label>
+        </div>
+        <div class="row">
+          <label class="inline">A <input id="wireColA" type="color" value="#ffffff"></label>
+          <label class="inline">B <input id="wireColB" type="color" value="#ffd27a"></label>
+          <label class="stack full">Angle° <input id="wireAngle" type="range" min="0" max="360" step="1" value="0"></label>
+        </div>
+        <label class="stack full">Wire W <input id="wireW" type="range" min="0.5" max="3" step="0.1" value="0.3"></label>
+        <div class="row">
+          <label class="inline">Two-sided <input id="twoSided" type="checkbox" checked></label>
+          <label class="inline">Lighting <input id="lightingOn" type="checkbox" checked></label>
+        </div>
+      </div>
+    </details>
+
+    <!-- Lighting & AO -->
+    <details class="section">
+      <summary>Lighting & AO</summary>
+      <div class="content">
+        <label class="inline">AO <input id="aoOn" type="checkbox" checked></label>
+        <label class="stack full">AO Str <input id="aoStr" type="range" min="0.0" max="3.0" step="0.01" value="1.0"></label>
+        <label class="inline">Cast Shadow <input id="shadowOn" type="checkbox"></label>
+        <label class="stack full">Sh Alpha <input id="shadowAlpha" type="range" min="0.0" max="1.0" step="0.01" value="0.35"></label>
+      </div>
+    </details>
+
+    <!-- Post FX -->
+    <details class="section scroll">
+      <summary>Post FX</summary>
+      <div class="content">
+        <div class="row">
+          <label class="inline">Bloom <input id="bloomOn" type="checkbox"></label>
+          <label class="stack full">Th <input id="bloomTh" type="range" min="0.0" max="2.0" step="0.01" value="1.0"></label>
+          <label class="stack full">Str <input id="bloomStr" type="range" min="0.0" max="2.5" step="0.01" value="0.9"></label>
+          <label class="stack full">Blur <input id="bloomBlur" type="range" min="1" max="10" step="1" value="4"></label>
+        </div>
+        <div class="row">
+          <label class="inline">DOF <input id="dofOn" type="checkbox"></label>
+          <label class="stack full">Focus <input id="dofFocus" type="range" min="1" max="30" step="0.1" value="10"></label>
+          <label class="stack full">Range <input id="dofRange" type="range" min="0.5" max="30" step="0.1" value="6"></label>
+          <label class="stack full">Blur <input id="dofBlur" type="range" min="0" max="10" step="0.1" value="4"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Vignette <input id="vigOn" type="checkbox"></label>
+          <label class="stack full">Vig <input id="vigAmt" type="range" min="0" max="1" step="0.01" value="0.25"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Grain <input id="grainOn" type="checkbox"></label>
+          <label class="stack full">Gr <input id="grainAmt" type="range" min="0" max="0.5" step="0.01" value="0.08"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Chromatic Aberration <input id="caOn" type="checkbox"></label>
+          <label class="stack full">Amount <input id="caAmt" type="range" min="0" max="0.05" step="0.001" value="0.006"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Barrel/Pincushion Distortion <input id="distOn" type="checkbox"></label>
+          <label class="stack full">Amount <input id="distAmt" type="range" min="-0.5" max="0.5" step="0.001" value="0.02"></label>
+        </div>
+        <div class="row">
+          <label class="stack">Center X <input id="distCenterX" type="range" min="-0.5" max="0.5" step="0.001" value="0.0"></label>
+          <label class="stack">Center Y <input id="distCenterY" type="range" min="-0.5" max="0.5" step="0.001" value="0.0"></label>
+        </div>
+        <div class="row">
+          <label class="stack full">Strength Curve (k2) <input id="distK2" type="range" min="-0.2" max="0.2" step="0.001" value="0.0"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Apply Bloom After Distortion <input id="distBloomAfter" type="checkbox"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Pixelate <input id="pixOn" type="checkbox"></label>
+          <label class="stack full">Px <input id="pixSize" type="range" min="1" max="8" step="1" value="2"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Macroblocks <input id="blockOn" type="checkbox"></label>
+          <label class="stack full">Block Px <input id="blockSize" type="range" min="1" max="64" step="1" value="8"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Scramble Blocks <input id="blockScrOn" type="checkbox"></label>
+          <label class="stack full">Scramble Amt <input id="blockScrAmt" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Tape Wobble <input id="wobOn" type="checkbox"></label>
+          <!-- Reduced max/step/default for subtler effect -->
+          <label class="stack full">Wobble Amt <input id="wobAmt" type="range" min="0" max="0.01" step="0.0001" value="0.0008"></label>
+        </div>
+        <div class="row">
+          <label class="stack full">Wobble Speed <input id="wobSpeed" type="range" min="0.0" max="4.0" step="0.01" value="0.6"></label>
+        </div>
+        <div class="row">
+          <label class="inline">VHS Chroma Bleed <input id="vhsOn" type="checkbox"></label>
+          <label class="stack full">Chroma Amt <input id="vhsAmt" type="range" min="0" max="0.01" step="0.0002" value="0.002"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Frame Feedback <input id="fbOn" type="checkbox"></label>
+          <button id="fbClear" class="small" title="Clear feedback buffers" style="margin-left:8px">Clear FB</button>
+          <label class="stack full">Feedback Amt <input id="fbAmt" type="range" min="0" max="1" step="0.01" value="0.25"></label>
+        </div>
+        <div class="row">
+          <label class="stack full">Feedback Decay <input id="fbDecay" type="range" min="0" max="1" step="0.01" value="0.95"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Posterize <input id="postOn" type="checkbox"></label>
+          <label class="stack full">Lev <input id="postLev" type="range" min="2" max="16" step="1" value="8"></label>
+        </div>
+      </div>
+    </details>
+
+    <!-- Camera: remove MIDI row -->
+    <details class="section">
+      <summary>Camera</summary>
+      <div class="content">
+        <div class="row">
+          <label class="inline">Fly Cam <input id="flyOn" type="checkbox"></label>
+          <label class="stack full">Fly Speed <input id="flySpeed" type="range" min="0.5" max="20" step="0.1" value="5"></label>
+        </div>
+        <div class="row">
+          <label class="inline">Auto Rotate <input id="autoRotOn" type="checkbox"></label>
+          <label class="stack full">Rot°/s <input id="autoRotSpeed" type="range" min="-180" max="180" step="1" value="20"></label>
+        </div>
+      </div>
+    </details>
+
+    <div class="note">
+      H: Toggle UI • Space: play/pause • F: Frame • F11/Alt+Enter: Fullscreen • Left: orbit/look • Right/Middle/Shift: pan •
+      Wheel: zoom (orbit) / move (fly) • Middle+Wheel: change fly speed • C: toggle Fly • R: toggle AutoRotate • WASD+QE: move • Double-click: reset
+    </div>
+  </div>
+
+  <script>
+  (async () => {
+    try {
+    const canvas = document.getElementById('gl');
+    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+    // Debug overlay for runtime errors (visible on-screen)
+    const debugEl = document.createElement('div');
+    debugEl.id = 'debugOverlay';
+    Object.assign(debugEl.style, {
+      position: 'fixed', right: '12px', top: '12px', zIndex: 9999,
+      maxWidth: '40vw', maxHeight: '40vh', overflow: 'auto', background: 'rgba(10,10,10,0.85)', color:'#f88', padding:'8px', borderRadius:'8px', fontSize:'12px', fontFamily:'monospace'
+    });
+    document.body.appendChild(debugEl);
+    // Safe serializer that avoids throwing on circular refs or complex objects
+    function safeSerialize(val) {
+      if (typeof val === 'string') return val;
+      try {
+        const seen = new WeakSet();
+        return JSON.stringify(val, function(k, v){
+          if (v && typeof v === 'object') {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          // avoid serializing large typed arrays fully
+          if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) return `[${v.constructor.name}]`;
+          return v;
+        });
+      } catch (e) {
+        try { return String(val); } catch(_) { return Object.prototype.toString.call(val); }
+      }
+    }
+    const appendDebug = (t, ...args) => {
+      const parts = args.map(a => safeSerialize(a));
+      const msg = `[${t}] ${parts.join(' ')}\n`;
+      debugEl.textContent += msg;
+      debugEl.scrollTop = debugEl.scrollHeight;
+    };
+    const _oldErr = console.error.bind(console);
+    console.error = (...args) => { appendDebug('ERROR', ...args); _oldErr(...args); };
+    const _oldLog = console.log.bind(console);
+    console.log = (...args) => { appendDebug('LOG', ...args); _oldLog(...args); };
+    // Start hidden; allow UI checkbox to toggle visibility
+    debugEl.style.display = 'none';
+    const debugOnEl = document.getElementById('debugOn');
+    if (debugOnEl) {
+      debugOnEl.addEventListener('change', () => {
+        debugEl.style.display = debugOnEl.checked ? 'block' : 'none';
+      });
+    }
+    if (!gl) { alert('WebGL2 not supported'); console.error('WebGL2 not supported'); return; }
+
+    // UI
+    const ui = document.getElementById('ui');
+    const fileInput = document.getElementById('file');
+    const playBtn = document.getElementById('play');
+    const pauseBtn = document.getElementById('pause');
+    const shapeSel = document.getElementById('shape');
+    const heightSlider = document.getElementById('height');
+    const speedSlider = document.getElementById('speed');
+    const brightSlider = document.getElementById('bright');
+    const bgColorEl = document.getElementById('bgColor');
+    const geoResEl = document.getElementById('geoRes');
+
+    const fillOnEl = document.getElementById('fillOn');
+    const fillColorEl = document.getElementById('fillColor');
+    const fillGradOnEl = document.getElementById('fillGradOn');
+    const fillColAEl = document.getElementById('fillColA');
+    const fillColBEl = document.getElementById('fillColB');
+    const fillAngleEl = document.getElementById('fillAngle');
+
+    const wireOnEl = document.getElementById('wireOn');
+    const wireColorEl = document.getElementById('wireColor');
+    const wireWEl = document.getElementById('wireW');
+    const wireGradOnEl = document.getElementById('wireGradOn');
+    const wireColAEl = document.getElementById('wireColA');
+    const wireColBEl = document.getElementById('wireColB');
+    const wireAngleEl = document.getElementById('wireAngle');
+
+    const twoSidedEl = document.getElementById('twoSided');
+    const lightingOnEl = document.getElementById('lightingOn');
+
+    const leadingSel = document.getElementById('leading');
+    const axisSel = document.getElementById('axis');
+    const autoNormEl = document.getElementById('autoNorm');
+    const logFreqEl = document.getElementById('logFreq');
+    const tiltEl = document.getElementById('tilt');
+
+    const sxEl = document.getElementById('sx');
+    const syEl = document.getElementById('sy');
+    const szEl = document.getElementById('sz');
+
+    const aoOnEl = document.getElementById('aoOn');
+    const aoStrEl = document.getElementById('aoStr');
+
+    const shadowOnEl = document.getElementById('shadowOn');
+    const shadowAlphaEl = document.getElementById('shadowAlpha');
+
+    const bloomOnEl = document.getElementById('bloomOn');
+    const bloomThEl = document.getElementById('bloomTh');
+    const bloomStrEl = document.getElementById('bloomStr');
+    const bloomBlurEl = document.getElementById('bloomBlur');
+
+    const dofOnEl = document.getElementById('dofOn');
+    const dofFocusEl = document.getElementById('dofFocus');
+    const dofRangeEl = document.getElementById('dofRange');
+    const dofBlurEl = document.getElementById('dofBlur');
+
+    const vigOnEl = document.getElementById('vigOn');
+    const vigAmtEl = document.getElementById('vigAmt');
+    const grainOnEl = document.getElementById('grainOn');
+    const grainAmtEl = document.getElementById('grainAmt');
+  const caOnEl = document.getElementById('caOn');
+  const caAmtEl = document.getElementById('caAmt');
+  const wobOnEl = document.getElementById('wobOn');
+  const wobAmtEl = document.getElementById('wobAmt');
+  const wobSpeedEl = document.getElementById('wobSpeed');
+  const vhsOnEl = document.getElementById('vhsOn');
+  const vhsAmtEl = document.getElementById('vhsAmt');
+  const distOnEl = document.getElementById('distOn');
+  const distAmtEl = document.getElementById('distAmt');
+  const distCenterXEl = document.getElementById('distCenterX');
+  const distCenterYEl = document.getElementById('distCenterY');
+  const distK2El = document.getElementById('distK2');
+  const distBloomAfterEl = document.getElementById('distBloomAfter');
+    const pixOnEl = document.getElementById('pixOn');
+    const pixSizeEl = document.getElementById('pixSize');
+  const blockOnEl = document.getElementById('blockOn');
+  const blockSizeEl = document.getElementById('blockSize');
+  const blockScrOnEl = document.getElementById('blockScrOn');
+  const blockScrAmtEl = document.getElementById('blockScrAmt');
+    const postOnEl = document.getElementById('postOn');
+    const postLevEl = document.getElementById('postLev');
+  const fbClearBtn = document.getElementById('fbClear');
+
+    const flyOnEl = document.getElementById('flyOn');
+    const flySpeedEl = document.getElementById('flySpeed');
+    const autoRotOnEl = document.getElementById('autoRotOn');
+    const autoRotSpeedEl = document.getElementById('autoRotSpeed');
+
+    const midiOnEl = document.getElementById('midiOn');
+    const midiLearnEl = document.getElementById('midiLearn');
+    const midiStatusEl = document.getElementById('midiStatus');
+
+    const presetSaveBtn = document.getElementById('presetSave');
+    const presetLoadBtn = document.getElementById('presetLoad');
+    const presetFileEl  = document.getElementById('presetFile');
+  const systemAudioEl = document.getElementById('systemAudio');
+
+    
+    // Audio
+    const audio = new Audio();
+    audio.preload = 'metadata';
+  let audioCtx = null, analyser = null, sourceNode = null;
+  let systemStream = null, systemSourceNode = null, systemAudioOn = false;
+    let sampleRate = 48000;
+    const FFT_SIZE = 2048;
+    let freqData = null;
+
+    function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        sampleRate = audioCtx.sampleRate || 48000;
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = FFT_SIZE;
+        analyser.minDecibels = -90;
+        analyser.maxDecibels = -10;
+        analyser.smoothingTimeConstant = 0.85;
+        freqData = new Uint8Array(analyser.frequencyBinCount);
+      }
+      // (Re)attach element source only if not using system audio and not already attached
+      if (!systemAudioOn && audioCtx && !sourceNode) {
+        try {
+          sourceNode = audioCtx.createMediaElementSource(audio);
+          sourceNode.connect(analyser);
+          analyser.connect(audioCtx.destination);
+        } catch (e) {
+          // Ignore errors if multiple connections attempted
+        }
+      }
+    }
+
+    async function enableSystemAudio() {
+      if (systemAudioOn) return;
+      ensureAudio();
+      try {
+        // Chrome often requires video:true for system audio selection
+        systemStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: { echoCancellation:false, noiseSuppression:false, sampleRate:audioCtx.sampleRate }
+        });
+        const audioTracks = systemStream.getAudioTracks();
+        if (!audioTracks.length) {
+          console.warn('No system audio track found.');
+          stopSystemAudio();
+          systemAudioEl.checked = false;
+          return;
+        }
+        // Disconnect element source if present so levels are only system output
+        if (sourceNode) {
+          try { sourceNode.disconnect(); } catch(_){}
+          sourceNode = null;
+        }
+        systemSourceNode = audioCtx.createMediaStreamSource(systemStream);
+        systemSourceNode.connect(analyser);
+        systemAudioOn = true;
+        // Pause local audio element playback to avoid double sound
+        if (!audio.paused) audio.pause();
+        console.log('[SystemAudio] Enabled');
+      } catch (err) {
+        console.error('Failed to capture system audio', err);
+        systemAudioEl.checked = false;
+      }
+    }
+    function stopSystemAudio() {
+      if (systemSourceNode) { try { systemSourceNode.disconnect(); } catch(_){} systemSourceNode = null; }
+      if (systemStream) {
+        systemStream.getTracks().forEach(t => t.stop());
+        systemStream = null;
+      }
+      systemAudioOn = false;
+      // Reconnect element source if a file was loaded
+      if (audio.src) {
+        ensureAudio();
+      }
+      console.log('[SystemAudio] Disabled');
+    }
+    systemAudioEl.addEventListener('change', () => {
+      if (systemAudioEl.checked) enableSystemAudio(); else stopSystemAudio();
+    });
+
+    // Clear feedback buffers utility
+    function clearFeedback() {
+      if (!gl) return;
+      try {
+        const w = canvas.width, h = canvas.height;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbA || null);
+        gl.viewport(0,0,w,h);
+        gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbB || null);
+        gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        // reset ping to a known state
+        window._fbPing = 0;
+        console.log('[FB] Cleared feedback buffers');
+      } catch (e) { console.warn('[FB] clear failed', e); }
+    }
+
+    // Wire clear button and auto-clear when FB is enabled
+    if (fbClearBtn) {
+      fbClearBtn.addEventListener('click', () => { clearFeedback(); });
+    }
+    if (fbOn) {
+      fbOn.addEventListener('change', () => { if (fbOn.checked) clearFeedback(); });
+    }
+
+    
+
+    // Spectrum history texture
+    const TARGET_BINS = 128;
+    const DEPTH_SLICES = 192;
+    const texW = TARGET_BINS, texH = DEPTH_SLICES;
+    const ampData = new Uint8Array(texW * texH);
+    let head = 0, shiftAcc = 0;
+    const lastSlice = new Uint8Array(texW);
+
+    const ema = new Float32Array(texW);
+    for (let i=0;i<texW;i++) ema[i] = 0.05;
+
+    function sampleSpectrumRow() {
+      if (!analyser) return;
+      analyser.getByteFrequencyData(freqData);
+
+      const tilt = parseFloat(tiltEl.value);
+      const useNorm = autoNormEl.checked;
+      const useLog = logFreqEl.checked;
+      const alpha = 0.05;
+
+      const N = freqData.length;
+      const nyq = sampleRate * 0.5;
+      const minF = 20.0, maxF = 20000.0;
+      const ratio = maxF / minF;
+
+      for (let i = 0; i < texW; i++) {
+        let v0 = 0.0;
+
+        if (useLog) {
+          const t = (i + 0.5) / texW;
+          const f = minF * Math.pow(ratio, t); // 20Hz..20kHz
+          const idx = Math.max(0, Math.min(N - 1, f / nyq * (N - 1)));
+          const i0 = Math.floor(idx), i1 = Math.min(N - 1, i0 + 1);
+          const w = idx - i0;
+          v0 = ((1 - w) * freqData[i0] + w * freqData[i1]) / 255.0;
+        } else {
+          const step = Math.max(1, Math.floor(N / texW));
+          const bin = Math.min(i * step, N - 1);
+          v0 = freqData[bin] / 255.0;
+        }
+
+        const wTilt = Math.pow(((i + 0.5) / texW), tilt);
+        let v = v0 * wTilt;
+
+        if (useNorm) {
+          ema[i] = (1 - alpha) * ema[i] + alpha * v;
+          const ref = Math.max(ema[i], 0.02);
+          v = v / ref;
+          v = v / (1.0 + v);
+        }
+
+        v = Math.max(0, Math.min(1, v));
+        lastSlice[i] = Math.round(v * 255);
+      }
+    }
+
+    // GL helpers
+    function compile(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+      return sh;
+    }
+    function program(vs, fs) {
+      const p = gl.createProgram();
+      gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+      gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+      return p;
+    }
+
+    // 3D program (with gradients)
+    const vs3D = `#version 300 es
+    precision highp float;
+    layout(location=0) in vec2 aUV;
+    layout(location=1) in vec3 aBary;
+
+    uniform mat4 uMVP;
+    uniform sampler2D uAmp;
+    uniform int uHead, uW, uH;
+    uniform int uFlowAxis;      // 0 = V, 1 = U
+    uniform int uFlowSign;      // +1 from 0->1, -1 from 1->0
+    uniform float uHeight;
+    uniform float uPlaneW, uPlaneD, uRadius;
+    uniform int uShape;         // 0 plane, 1 sphere, 2 cube, 3 pyramid
+    uniform int uHeightAxis;    // plane only
+    uniform vec3 uScale;        // world scale
+    uniform float uAOStr;       // AO strength (vertex-space curvature)
+
+    out vec3 vNormal;
+    out vec3 vWorld;
+    out vec3 vBary;
+    out float vAO;
+    out vec2 vUV;
+
+    float ampAt(float u, float v) {
+      float col01 = (uFlowAxis == 1) ? v : u;
+      float col = clamp(col01, 0.0, 1.0) * float(uW - 1);
+      float t = (uFlowAxis == 1)
+        ? (uFlowSign > 0 ? u : 1.0 - u)
+        : (uFlowSign > 0 ? v : 1.0 - v);
+      float row = clamp(t, 0.0, 1.0) * float(uH - 1);
+      float rr = mod(float(uHead) + row, float(uH));
+      vec2 tc = vec2((col + 0.5) / float(uW), (rr + 0.5) / float(uH));
+      return texture(uAmp, tc).r;
+    }
+
+    vec3 planePoint(float u, float v, float amp) {
+      float h = amp * 160.0 * uHeight;
+      vec3 P = vec3((u - 0.5) * uPlaneW, 0.0, v * uPlaneD);
+      if (uHeightAxis == 0) P.y += h;
+      else if (uHeightAxis == 1) P.x += h;
+      else P.z += h;
+      return P;
+    }
+
+    vec3 mapPoint(float u, float v, float amp) {
+      if (uShape == 0) return planePoint(u, v, amp);
+      float phi = u * 6.28318530718;
+      float theta = v * 3.14159265359;
+      vec3 d = normalize(vec3(cos(phi) * sin(theta), cos(theta), sin(phi) * sin(theta)));
+      if (uShape == 1) {
+        float disp = amp * uRadius * 0.25 * uHeight;
+        return d * (uRadius + disp);
+      } else if (uShape == 2) {
+        vec3 ad = abs(d);
+        float m = max(ad.x, max(ad.y, ad.z));
+        vec3 base = d * (uRadius / max(m, 1e-6));
+        float disp = amp * uRadius * 0.22 * uHeight;
+        return base + d * disp;
+      } else {
+        float denom = abs(d.x) + abs(d.y) + abs(d.z);
+        vec3 base = d * (uRadius / max(denom, 1e-6));
+        float disp = amp * uRadius * 0.22 * uHeight;
+        return base + d * disp;
+      }
+    }
+
+    void main() {
+      float u = aUV.x, v = aUV.y;
+      float du = 1.0 / float(max(uW - 1, 1));
+      float dv = 1.0 / float(max(uH - 1, 1));
+
+      float A  = ampAt(u, v);
+      float Au = ampAt(u + du, v);
+      float Av = ampAt(u, v + dv);
+
+      vec3 P0  = mapPoint(u, v, A);
+      vec3 Pu0 = mapPoint(u + du, v, Au);
+      vec3 Pv0 = mapPoint(u, v + dv, Av);
+
+      float ns = (uShape == 0) ? -1.0 : 1.0;         // flip for plane only
+      vec3 n0 = ns * cross(Pu0 - P0, Pv0 - P0);
+      vec3 n = normalize(n0 / uScale);
+      vec3 P = P0 * uScale;
+
+      float curv = length(vec2(Au - A, Av - A));
+      vAO = clamp(1.0 - curv * uAOStr, 0.0, 1.0);
+
+      vNormal = n;
+      vWorld = P;
+      vBary = aBary;
+      vUV = aUV;
+
+      gl_Position = uMVP * vec4(P, 1.0);
+    }`;
+
+    const fs3D = `#version 300 es
+    precision highp float;
+    in vec3 vNormal;
+    in vec3 vWorld;
+    in vec3 vBary;
+    in float vAO;
+    in vec2 vUV;
+
+    uniform vec3 uFillColor;
+    uniform vec3 uWireColor;
+
+    uniform bool uFillGradOn;
+    uniform vec3 uFillColA;
+    uniform vec3 uFillColB;
+    uniform float uFillAngleDeg;
+
+    uniform bool uWireGradOn;
+    uniform vec3 uWireColA;
+    uniform vec3 uWireColB;
+    uniform float uWireAngleDeg;
+
+    uniform float uBrightness;
+    uniform float uWireWidth;
+    uniform bool uWireOn;
+    uniform bool uFillOn;
+    uniform bool uTwoSided;
+    uniform bool uLightingOn;
+    uniform bool uAOOn;
+
+    out vec4 FragColor;
+
+    const vec3 lightDirC = normalize(vec3(-0.4, 0.8, 0.4));
+
+    float edgeFactor(vec3 bary) {
+      float e = min(bary.x, min(bary.y, bary.z));
+      float w = fwidth(e) * uWireWidth;
+      return 1.0 - smoothstep(w, w * 2.0, e);
+    }
+
+    vec3 gradColor(vec2 uv, vec3 A, vec3 B, float angleDeg){
+      float a = radians(angleDeg);
+      vec2 dir = vec2(cos(a), sin(a));
+      vec2 p = uv * 2.0 - 1.0;
+      float t = dot(normalize(dir), p) * 0.5 + 0.5;
+      t = clamp(t, 0.0, 1.0);
+      return mix(A, B, t);
+    }
+
+    void main() {
+      if (!uFillOn && !uWireOn) discard;
+
+      vec3 N = normalize(vNormal);
+      float ndl = dot(N, lightDirC);
+      if (uTwoSided) ndl = abs(ndl);
+      float lambert = uLightingOn ? max(0.0, ndl) : 1.0;
+
+      vec3 fillCol = uFillGradOn ? gradColor(vUV, uFillColA, uFillColB, uFillAngleDeg) : uFillColor;
+      vec3 wireCol = uWireGradOn ? gradColor(vUV, uWireColA, uWireColB, uWireAngleDeg) : uWireColor;
+
+      float shade = (0.35 + 0.65 * lambert) * uBrightness;
+      float ao = uAOOn ? vAO : 1.0;
+      vec3 base = uFillOn ? (fillCol * shade * ao) : vec3(0.0);
+
+      float ed = uWireOn ? edgeFactor(vBary) : 0.0;
+      vec3 color = mix(base, wireCol, clamp(ed, 0.0, 1.0));
+      FragColor = vec4(color, 1.0);
+    }`;
+
+    const prog3D = program(vs3D, fs3D);
+
+    // Shadow program (planar projection onto y=0)
+    const vsShadow = `#version 300 es
+    precision highp float;
+    layout(location=0) in vec2 aUV;
+    layout(location=1) in vec3 aBary;
+
+    uniform mat4 uMVP;
+    uniform sampler2D uAmp;
+    uniform int uHead, uW, uH;
+    uniform int uFlowAxis, uFlowSign;
+    uniform float uHeight;
+    uniform float uPlaneW, uPlaneD, uRadius;
+    uniform int uShape, uHeightAxis;
+    uniform vec3 uScale;
+    uniform vec3 uLightDir;
+
+    float ampAt(float u, float v) {
+      float col01 = (uFlowAxis == 1) ? v : u;
+      float col = clamp(col01, 0.0, 1.0) * float(uW - 1);
+      float t = (uFlowAxis == 1)
+        ? (uFlowSign > 0 ? u : 1.0 - u)
+        : (uFlowSign > 0 ? v : 1.0 - v);
+      float row = clamp(t, 0.0, 1.0) * float(uH - 1);
+      float rr = mod(float(uHead) + row, float(uH));
+      vec2 tc = vec2((col + 0.5) / float(uW), (rr + 0.5) / float(uH));
+      return texture(uAmp, tc).r;
+    }
+
+    vec3 planePoint(float u, float v, float amp) {
+      float h = amp * 160.0 * uHeight;
+      vec3 P = vec3((u - 0.5) * uPlaneW, 0.0, v * uPlaneD);
+      if (uHeightAxis == 0) P.y += h;
+      else if (uHeightAxis == 1) P.x += h;
+      else P.z += h;
+      return P;
+    }
+    vec3 mapPoint(float u, float v, float amp) {
+      if (uShape == 0) return planePoint(u, v, amp);
+      float phi = u * 6.28318530718;
+      float theta = v * 3.14159265359;
+      vec3 d = normalize(vec3(cos(phi) * sin(theta), cos(theta), sin(phi) * sin(theta)));
+      if (uShape == 1) {
+        float disp = amp * uRadius * 0.25 * uHeight;
+        return d * (uRadius + disp);
+      } else if (uShape == 2) {
+        vec3 ad = abs(d);
+        float m = max(ad.x, max(ad.y, ad.z));
+        vec3 base = d * (uRadius / max(m, 1e-6));
+        float disp = amp * uRadius * 0.22 * uHeight;
+        return base + d * disp;
+      } else {
+        float denom = abs(d.x) + abs(d.y) + abs(d.z);
+        vec3 base = d * (uRadius / max(denom, 1e-6));
+        float disp = amp * uRadius * 0.22 * uHeight;
+        return base + d * disp;
+      }
+    }
+
+    void main() {
+      float u = aUV.x, v = aUV.y;
+      float A = ampAt(u, v);
+      vec3 P = mapPoint(u, v, A) * uScale;
+
+      vec3 L = normalize(uLightDir);
+      float t = (0.0 - P.y) / max(-L.y, 1e-4);
+      vec3 Ps = P + L * t;
+      gl_Position = uMVP * vec4(Ps, 1.0);
+    }`;
+
+    const fsShadow = `#version 300 es
+    precision highp float;
+    uniform float uShadowAlpha;
+    out vec4 FragColor;
+    void main(){
+      FragColor = vec4(0.0, 0.0, 0.0, uShadowAlpha);
+    }`;
+
+    const progShadow = program(vsShadow, fsShadow);
+
+    gl.useProgram(prog3D);
+
+    // Grid mesh (barycentrics) with dynamic resolution
+    const BASE_COLS = TARGET_BINS;
+    const BASE_ROWS = DEPTH_SLICES;
+    let uv = null, bary = null, vertCount = 0;
+
+    const vao3D = gl.createVertexArray();
+    const uvVBO = gl.createBuffer();
+    const baryVBO = gl.createBuffer();
+
+    function rebuildGrid(resPct) {
+      const res = Math.max(20, Math.min(100, Math.floor(resPct))) / 100;
+      const cols = Math.max(2, Math.floor((BASE_COLS - 1) * res) + 1);
+      const rows = Math.max(2, Math.floor((BASE_ROWS - 1) * res) + 1);
+      const quadsX = cols - 1, quadsY = rows - 1;
+      const triCount = quadsX * quadsY * 2;
+      vertCount = triCount * 3;
+
+      uv = new Float32Array(vertCount * 2);
+      bary = new Float32Array(vertCount * 3);
+      let vi = 0, bi = 0;
+      function pushTri(u0,v0, u1,v1, u2,v2, b0,b1,b2) {
+        uv[vi++] = u0; uv[vi++] = v0;
+        uv[vi++] = u1; uv[vi++] = v1;
+        uv[vi++] = u2; uv[vi++] = v2;
+        bary[bi++] = b0[0]; bary[bi++] = b0[1]; bary[bi++] = b0[2];
+        bary[bi++] = b1[0]; bary[bi++] = b1[1]; bary[bi++] = b1[2];
+        bary[bi++] = b2[0]; bary[bi++] = b2[1]; bary[bi++] = b2[2];
+      }
+      for (let y = 0; y < quadsY; y++) {
+        const v0 = y / (rows - 1);
+        const v1 = (y + 1) / (rows - 1);
+        for (let x = 0; x < quadsX; x++) {
+          const u0 = x / (cols - 1);
+          const u1 = (x + 1) / (cols - 1);
+          pushTri(u0,v0, u1,v0, u0,v1, [1,0,0],[0,1,0],[0,0,1]);
+          pushTri(u1,v0, u1,v1, u0,v1, [1,0,0],[0,1,0],[0,0,1]);
+        }
+      }
+
+      gl.bindVertexArray(vao3D);
+      gl.bindBuffer(gl.ARRAY_BUFFER, uvVBO);
+      gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, baryVBO);
+      gl.bufferData(gl.ARRAY_BUFFER, bary, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+    }
+
+    rebuildGrid(parseFloat(geoResEl.value));
+    geoResEl.addEventListener('input', () => rebuildGrid(parseFloat(geoResEl.value)));
+
+    // Uniform locations (3D)
+    const loc3D = {
+      uMVP: gl.getUniformLocation(prog3D, 'uMVP'),
+      uAmp: gl.getUniformLocation(prog3D, 'uAmp'),
+      uHead: gl.getUniformLocation(prog3D, 'uHead'),
+      uW: gl.getUniformLocation(prog3D, 'uW'),
+      uH: gl.getUniformLocation(prog3D, 'uH'),
+      uFlowAxis: gl.getUniformLocation(prog3D, 'uFlowAxis'),
+      uFlowSign: gl.getUniformLocation(prog3D, 'uFlowSign'),
+      uHeight: gl.getUniformLocation(prog3D, 'uHeight'),
+      uPlaneW: gl.getUniformLocation(prog3D, 'uPlaneW'),
+      uPlaneD: gl.getUniformLocation(prog3D, 'uPlaneD'),
+      uRadius: gl.getUniformLocation(prog3D, 'uRadius'),
+      uShape: gl.getUniformLocation(prog3D, 'uShape'),
+      uFillColor: gl.getUniformLocation(prog3D, 'uFillColor'),
+      uWireColor: gl.getUniformLocation(prog3D, 'uWireColor'),
+      uBrightness: gl.getUniformLocation(prog3D, 'uBrightness'),
+      uWireWidth: gl.getUniformLocation(prog3D, 'uWireWidth'),
+      uWireOn: gl.getUniformLocation(prog3D, 'uWireOn'),
+      uFillOn: gl.getUniformLocation(prog3D, 'uFillOn'),
+      uHeightAxis: gl.getUniformLocation(prog3D, 'uHeightAxis'),
+      uTwoSided: gl.getUniformLocation(prog3D, 'uTwoSided'),
+      uLightingOn: gl.getUniformLocation(prog3D, 'uLightingOn'),
+      uAOOn: gl.getUniformLocation(prog3D, 'uAOOn'),
+      uScale: gl.getUniformLocation(prog3D, 'uScale'),
+      uAOStr: gl.getUniformLocation(prog3D, 'uAOStr'),
+      // gradient
+      uFillGradOn: gl.getUniformLocation(prog3D, 'uFillGradOn'),
+      uFillColA: gl.getUniformLocation(prog3D, 'uFillColA'),
+      uFillColB: gl.getUniformLocation(prog3D, 'uFillColB'),
+      uFillAngleDeg: gl.getUniformLocation(prog3D, 'uFillAngleDeg'),
+      uWireGradOn: gl.getUniformLocation(prog3D, 'uWireGradOn'),
+      uWireColA: gl.getUniformLocation(prog3D, 'uWireColA'),
+      uWireColB: gl.getUniformLocation(prog3D, 'uWireColB'),
+      uWireAngleDeg: gl.getUniformLocation(prog3D, 'uWireAngleDeg'),
+    };
+    gl.useProgram(prog3D);
+    gl.uniform1i(loc3D.uAmp, 0);
+    gl.uniform1i(loc3D.uW, texW);
+    gl.uniform1i(loc3D.uH, texH);
+
+    // Shadow uniforms
+    const locSh = {
+      uMVP: gl.getUniformLocation(progShadow, 'uMVP'),
+      uAmp: gl.getUniformLocation(progShadow, 'uAmp'),
+      uHead: gl.getUniformLocation(progShadow, 'uHead'),
+      uW: gl.getUniformLocation(progShadow, 'uW'),
+      uH: gl.getUniformLocation(progShadow, 'uH'),
+      uFlowAxis: gl.getUniformLocation(progShadow, 'uFlowAxis'),
+      uFlowSign: gl.getUniformLocation(progShadow, 'uFlowSign'),
+      uHeight: gl.getUniformLocation(progShadow, 'uHeight'),
+      uPlaneW: gl.getUniformLocation(progShadow, 'uPlaneW'),
+      uPlaneD: gl.getUniformLocation(progShadow, 'uPlaneD'),
+      uRadius: gl.getUniformLocation(progShadow, 'uRadius'),
+      uShape: gl.getUniformLocation(progShadow, 'uShape'),
+      uHeightAxis: gl.getUniformLocation(progShadow, 'uHeightAxis'),
+      uScale: gl.getUniformLocation(progShadow, 'uScale'),
+      uLightDir: gl.getUniformLocation(progShadow, 'uLightDir'),
+      uShadowAlpha: gl.getUniformLocation(progShadow, 'uShadowAlpha'),
+    };
+
+    // Amplitude texture
+    const ampTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, ampTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, texW, texH, 0, gl.RED, gl.UNSIGNED_BYTE, ampData);
+
+    // Post FX
+    const vsQuad = `#version 300 es
+    layout(location=0) in vec2 aPos;
+    layout(location=1) in vec2 aUV;
+    out vec2 vUV;
+    void main(){ vUV=aUV; gl_Position=vec4(aPos,0.0,1.0); }`;
+
+    const fsDown = `#version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uTex;
+    uniform float uThreshold;
+    out vec4 FragColor;
+    void main(){
+      vec2 texel = 1.0 / vec2(textureSize(uTex, 0));
+      vec3 c = texture(uTex, vUV).rgb
+             + texture(uTex, vUV + vec2(texel.x,0.0)).rgb
+             + texture(uTex, vUV + vec2(0.0,texel.y)).rgb
+             + texture(uTex, vUV + texel).rgb;
+      c *= 0.25;
+      vec3 bloom = max(c - vec3(uThreshold), vec3(0.0));
+      FragColor = vec4(bloom, 1.0);
+    }`;
+
+    const fsBlur = `#version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uTex;
+    uniform vec2 uTexel;
+    uniform vec2 uDir;
+    out vec4 FragColor;
+    void main(){
+      float w[5]; w[0]=0.227027; w[1]=0.1945946; w[2]=0.1216216; w[3]=0.054054; w[4]=0.016216;
+      float r = max(abs(uDir.x), abs(uDir.y));
+      vec3 c = texture(uTex, vUV).rgb * w[0];
+      for(int i=1;i<5;i++){
+        vec2 off = normalize(uDir + vec2(1e-6)) * uTexel * float(i) * r;
+        c += texture(uTex, vUV + off).rgb * w[i];
+        c += texture(uTex, vUV - off).rgb * w[i];
+      }
+      FragColor = vec4(c, 1.0);
+    }`;
+
+  const fsComposite = `#version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uScene;
+    uniform sampler2D uBloom;
+    uniform sampler2D uDepth;
+  uniform float uStrength;
+    uniform float uBrightness;
+  // Frame feedback
+  uniform sampler2D uFeedbackTex;
+  uniform bool uFbOn;
+  uniform float uFbAmt;
+  uniform float uFbDecay;
+
+    uniform bool uDOFOn;
+    uniform float uNear, uFar;
+    uniform float uFocus, uRange, uDOFBlur;
+
+  uniform bool uVigOn; uniform float uVigAmt;
+  uniform bool uPixOn; uniform float uPixSize;
+  uniform bool uPostOn; uniform float uPostLevels;
+  uniform float uTime;
+  // VHS ghosting (samples previous-frame feedback with offsets)
+  uniform bool uVhsGhostOn;
+  uniform float uVhsGhostAmt;
+  uniform float uVhsGhostOffset;
+  uniform bool uCAOn; uniform float uCAAmt;
+  // Blocky macroblock / scramble
+  uniform bool uBlockOn; uniform float uBlockSize;
+  uniform bool uBlockScrOn; uniform float uBlockScrAmt;
+
+    out vec4 FragColor;
+
+    float linearizeDepth(float z) {
+      float n = uNear, f = uFar;
+      float viewZ = (2.0*n) / (z * (f - n) - f - n);
+      return -viewZ;
+    }
+
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+
+  // integer hash for block scrambling
+  float ihash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+
+    // Sample the scene texture with DOF applied at an arbitrary UV.
+    vec3 sampleSceneWithDOF(vec2 uv, vec2 res) {
+      vec3 base = texture(uScene, uv).rgb;
+      if (!uDOFOn) return base;
+      float z = texture(uDepth, uv).r;
+      float d = linearizeDepth(z);
+      float coc = clamp(abs(d - uFocus) / max(uRange, 1e-3), 0.0, 1.0);
+      float r = coc * uDOFBlur;
+      vec2 texel = 1.0 / res;
+      vec2 offs[8];
+      offs[0]=vec2( 1, 0); offs[1]=vec2(-1, 0);
+      offs[2]=vec2( 0, 1); offs[3]=vec2( 0,-1);
+      offs[4]=vec2( 1, 1); offs[5]=vec2(-1, 1);
+      offs[6]=vec2( 1,-1); offs[7]=vec2(-1,-1);
+      vec3 acc = base; float w = 1.0;
+      for (int i = 0; i < 8; i++) {
+        vec2 duv = uv + offs[i] * texel * r;
+        acc += texture(uScene, duv).rgb;
+        w += 1.0;
+      }
+      return acc / w;
+    }
+
+    void main(){
+      vec2 res = vec2(textureSize(uScene, 0));
+      vec2 uv = vUV;
+
+      if (uPixOn) {
+        vec2 grid = max(vec2(1.0), vec2(uPixSize));
+        uv = (floor(uv * res / grid) * grid) / res;
+      }
+
+      // Sample scene with DOF applied at the current UV
+      vec3 scene = sampleSceneWithDOF(uv, res);
+      vec3 bloom = texture(uBloom, uv).rgb * uStrength;
+
+      // Chromatic aberration sampling offsets (in uv space)
+      vec2 caOff = vec2(0.0);
+      if (uCAOn) {
+        // small dynamic jitter to avoid perfectly static fringe
+        float jitter = (hash(vUV * vec2(uTime, uTime*1.3)) - 0.5) * 0.5;
+        caOff = normalize(vUV - 0.5) * uCAAmt * (1.0 + jitter);
+      }
+
+      // Apply chromatic aberration by sampling the DOF-processed scene at slight RGB offsets
+  vec3 color;
+      if (uCAOn) {
+        vec3 rs = sampleSceneWithDOF(clamp(uv + caOff, vec2(0.0), vec2(1.0)), res);
+        vec3 gs = sampleSceneWithDOF(clamp(uv, vec2(0.0), vec2(1.0)), res);
+        vec3 bs = sampleSceneWithDOF(clamp(uv - caOff, vec2(0.0), vec2(1.0)), res);
+        color = vec3(rs.r, gs.g, bs.b) + bloom;
+        color *= uBrightness;
+      } else {
+        color = (scene + bloom) * uBrightness;
+      }
+
+      // Macroblock / blocky compression: operate in UV space
+      if (uBlockOn) {
+        // blockSize is in pixels; convert to UV-space using res
+        float bs = max(1.0, uBlockSize);
+        vec2 px = 1.0 / res;
+        vec2 blk = vec2(bs) * px; // UV size of block
+        // find block center
+        vec2 bidx = floor(vUV / blk);
+        vec2 bmin = bidx * blk;
+        vec2 center = bmin + 0.5 * blk;
+        vec3 sampleCol = sampleSceneWithDOF(clamp(center, vec2(0.0), vec2(1.0)), res) + texture(uBloom, clamp(center, vec2(0.0), vec2(1.0))).rgb * uStrength;
+        // optionally scramble blocks by offsetting center by a small random amount per-block
+        if (uBlockScrOn) {
+          float r = ihash(bidx + vec2(uTime * 0.1));
+          float amt = uBlockScrAmt;
+          // generate a random offset within +/- half block
+          vec2 offs = vec2((r - 0.5) * amt * blk.x, (fract(r * 1.37) - 0.5) * amt * blk.y);
+          sampleCol = sampleSceneWithDOF(clamp(center + offs, vec2(0.0), vec2(1.0)), res) + texture(uBloom, clamp(center + offs, vec2(0.0), vec2(1.0))).rgb * uStrength;
+        }
+        color = sampleCol * uBrightness;
+      }
+
+      if (uPostOn) {
+        float levels = max(2.0, uPostLevels);
+        color = floor(color * levels) / levels;
+      }
+
+      // Blend in previous frame feedback (ping-pong) if enabled
+      if (uFbOn) {
+        vec3 prev = texture(uFeedbackTex, vUV).rgb;
+        // feedback: previous frame decayed then mixed
+        color = mix(color, prev * uFbDecay, uFbAmt);
+
+        // VHS ghosting: sample displaced previous-frame copies to create horizontal ghosts
+        if (uVhsGhostOn) {
+          // sample a couple of horizontally offset ghosts and additively blend
+          vec2 off = vec2(uVhsGhostOffset, 0.0);
+          // subtle jitter based on uv/time to avoid perfectly static ghosts
+          float j = (hash(vUV + vec2(uTime * 0.37, uTime * 0.73)) - 0.5) * 0.5;
+          vec3 g1 = texture(uFeedbackTex, clamp(vUV + off * (1.0 + j), vec2(0.0), vec2(1.0))).rgb;
+          vec3 g2 = texture(uFeedbackTex, clamp(vUV - off * (1.3 - j), vec2(0.0), vec2(1.0))).rgb;
+          vec3 ghost = 0.5 * (g1 + g2);
+          // partially desaturate ghost to mimic smeared luminance ghosts
+          float lum = dot(ghost, vec3(0.3333));
+          ghost = mix(vec3(lum), ghost, 0.6);
+          // additive blend scaled by ghost amount and feedback decay
+          color += ghost * uVhsGhostAmt * uFbDecay;
+        }
+      }
+
+      if (uVigOn) {
+        vec2 p = vUV * 2.0 - 1.0;
+        float r = dot(p,p);
+        float vig = smoothstep(1.2, 0.2, r);
+        color *= mix(1.0, vig, uVigAmt);
+      }
+
+  // Grain now applied after distortion so it isn't warped by distortion pass
+
+      FragColor = vec4(color, 1.0);
+    }`;
+
+    let progDown = null, progBlur = null, progComp = null;
+    try {
+      progDown = program(vsQuad, fsDown);
+    } catch (e) {
+      console.error('[Shader] fsDown failed:', e);
+      const fsDownFallback = `#version 300 es
+        precision highp float; in vec2 vUV; uniform sampler2D uTex; uniform float uThreshold; out vec4 FragColor;
+        void main(){ vec3 c = texture(uTex,vUV).rgb; vec3 bloom = max(c - vec3(uThreshold), vec3(0.0)); FragColor = vec4(bloom,1.0); }`;
+      progDown = program(vsQuad, fsDownFallback);
+    }
+    try {
+      progBlur = program(vsQuad, fsBlur);
+    } catch (e) {
+      console.error('[Shader] fsBlur failed:', e);
+      const fsBlurFallback = `#version 300 es
+        precision highp float; in vec2 vUV; uniform sampler2D uTex; uniform vec2 uTexel; uniform vec2 uDir; out vec4 FragColor;
+        void main(){ FragColor = texture(uTex, vUV); }`;
+      progBlur = program(vsQuad, fsBlurFallback);
+    }
+    try {
+      progComp = program(vsQuad, fsComposite);
+    } catch (e) {
+      console.error('[Shader] fsComposite failed:', e);
+      // Minimal composite fallback declaring expected uniforms and doing a simple blend
+      const fsCompFallback = `#version 300 es
+        precision highp float; in vec2 vUV; uniform sampler2D uScene; uniform sampler2D uBloom; uniform sampler2D uDepth;
+        uniform float uStrength; uniform float uBrightness;
+        uniform bool uDOFOn; uniform float uNear,uFar,uFocus,uRange,uDOFBlur;
+        uniform bool uVigOn; uniform float uVigAmt; uniform bool uGrainOn; uniform float uGrainAmt;
+        uniform bool uPixOn; uniform float uPixSize; uniform bool uPostOn; uniform float uPostLevels;
+        uniform float uTime; uniform bool uCAOn; uniform float uCAAmt; out vec4 FragColor;
+        void main(){ vec3 s = texture(uScene, vUV).rgb; vec3 b = texture(uBloom, vUV).rgb * uStrength; vec3 col = (s + b) * uBrightness; FragColor = vec4(col,1.0); }`;
+      progComp = program(vsQuad, fsCompFallback);
+    }
+
+    // Distortion pass: barrel / pincushion + optional wobble/VHS
+    const fsDistort = `#version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uTex;        // composited scene
+    uniform sampler2D uBloomTex;   // bloom (optional, sampled after distortion)
+    uniform float uAmt; // positive = barrel, negative = pincushion
+    uniform vec2 uCenter; // distortion center in uv (0..1)
+    uniform float uK2;    // higher-order curve term (r^4)
+    uniform float uBloomStr; // bloom strength to add after distortion
+    uniform int uBloomAfter;  // bool: apply bloom after distortion
+  uniform int uVigOn;      // vignette toggle (applied after distortion)
+  uniform float uVigAmt;   // vignette amount
+  // Grain (applied after distortion so grain is not warped)
+  uniform int uGrainOn;
+  uniform float uGrainAmt;
+    // Wobble / VHS
+    uniform int uWobOn;
+    uniform float uWobAmt;
+    uniform float uWobSpeed;
+    uniform int uVhsOn;
+    uniform float uVhsAmt;
+    uniform float uTime;
+    out vec4 FragColor;
+
+    // tiny hash for per-line phase
+    float hash1(float x){ return fract(sin(x*12.9898 + 78.233) * 43758.5453); }
+
+    void main(){
+      vec2 curUV = vUV;
+      // Tape wobble: small horizontal offset per scanline
+      if (uWobOn == 1 && uWobAmt > 0.0) {
+        float y = curUV.y;
+        float phase = hash1(floor(y * 256.0));
+  float wob = sin((y * 6.0 + uTime * uWobSpeed) * 6.2831853 + phase * 6.2831853) * uWobAmt * 0.5;
+        curUV.x += wob;
+      }
+
+      // radial distortion
+      vec2 p = curUV - uCenter;
+      vec2 uv = p * 2.0;
+      float r2 = dot(uv, uv);
+      float k = uAmt;
+      float k2 = uK2;
+      float scale = 1.0 + k * r2 + k2 * r2 * r2;
+      vec2 dst = uv * scale;
+      vec2 sampleUV = (dst * 0.5) + uCenter;
+
+      // Chromatic bleed: sample channels at small offsets proportional to edge
+      vec3 color;
+      if (uVhsOn == 1 && uVhsAmt > 0.0) {
+        float edge = length(sampleUV - 0.5);
+        float off = uVhsAmt * edge; // in UV units
+        vec2 oR = vec2(-off, 0.0);
+        vec2 oG = vec2(0.0, 0.0);
+        vec2 oB = vec2(off, 0.0);
+        vec3 cR = texture(uTex, clamp(sampleUV + oR, vec2(0.0), vec2(1.0))).rgb;
+        vec3 cG = texture(uTex, clamp(sampleUV + oG, vec2(0.0), vec2(1.0))).rgb;
+        vec3 cB = texture(uTex, clamp(sampleUV + oB, vec2(0.0), vec2(1.0))).rgb;
+        color = vec3(cR.r, cG.g, cB.b);
+      } else {
+        color = texture(uTex, clamp(sampleUV, vec2(0.0), vec2(1.0))).rgb;
+      }
+
+      // bloom after
+      if (uBloomAfter == 1) {
+        vec3 b = texture(uBloomTex, clamp(sampleUV, vec2(0.0), vec2(1.0))).rgb;
+        color += b * uBloomStr;
+      }
+
+      // vignette
+      if (uVigOn == 1) {
+        vec2 pv = vUV * 2.0 - 1.0;
+        float rv = dot(pv, pv);
+        float vig = smoothstep(1.2, 0.2, rv);
+        color *= mix(1.0, vig, uVigAmt);
+      }
+
+      // Grain applied after distortion so it remains stable and not warped
+      if (uGrainOn == 1 && uGrainAmt > 0.0) {
+        // simple animated grain using vUV and uTime
+        vec2 seed = vUV * vec2(1024.0, 1024.0) + vec2(uTime * 12.9898, uTime * 78.233);
+        float g = (hash1(dot(seed, vec2(0.213,0.539))) - 0.5) * 2.0 * uGrainAmt;
+        color += g;
+      }
+
+      FragColor = vec4(color, 1.0);
+    }`;
+  let progDist = null;
+    try {
+      progDist = program(vsQuad, fsDistort);
+    } catch (e) {
+      console.error('[Shader] Distortion shader failed to compile/link:', e);
+      // Fallback: simple blit shader to keep app running
+      const fsDistortFallback = `#version 300 es
+      precision highp float;
+      in vec2 vUV; uniform sampler2D uTex; out vec4 FragColor;
+      void main(){ FragColor = texture(uTex, vUV); }`;
+      try {
+        progDist = program(vsQuad, fsDistortFallback);
+      } catch (e2) {
+        // If fallback also fails, rethrow so developer notices
+        console.error('[Shader] Fallback distortion shader failed:', e2);
+        throw e2;
+      }
+    }
+  console.log('[GL] progDist created', !!progDist);
+
+    const locDown = {
+      uTex: gl.getUniformLocation(progDown, 'uTex'),
+      uThreshold: gl.getUniformLocation(progDown, 'uThreshold'),
+    };
+    const locBlur = {
+      uTex: gl.getUniformLocation(progBlur, 'uTex'),
+      uTexel: gl.getUniformLocation(progBlur, 'uTexel'),
+      uDir: gl.getUniformLocation(progBlur, 'uDir'),
+    };
+    const locComp = {
+      uScene: gl.getUniformLocation(progComp, 'uScene'),
+      uBloom: gl.getUniformLocation(progComp, 'uBloom'),
+      uDepth: gl.getUniformLocation(progComp, 'uDepth'),
+      uStrength: gl.getUniformLocation(progComp, 'uStrength'),
+      uBrightness: gl.getUniformLocation(progComp, 'uBrightness'),
+      uDOFOn: gl.getUniformLocation(progComp, 'uDOFOn'),
+      uNear: gl.getUniformLocation(progComp, 'uNear'),
+      uFar: gl.getUniformLocation(progComp, 'uFar'),
+      uFocus: gl.getUniformLocation(progComp, 'uFocus'),
+      uRange: gl.getUniformLocation(progComp, 'uRange'),
+      uDOFBlur: gl.getUniformLocation(progComp, 'uDOFBlur'),
+    uVigOn: gl.getUniformLocation(progComp, 'uVigOn'),
+      uVigAmt: gl.getUniformLocation(progComp, 'uVigAmt'),
+    uGrainOn: gl.getUniformLocation(progComp, 'uGrainOn'),
+    uGrainAmt: gl.getUniformLocation(progComp, 'uGrainAmt'),
+    uFeedbackTex: gl.getUniformLocation(progComp, 'uFeedbackTex'),
+    uFbOn: gl.getUniformLocation(progComp, 'uFbOn'),
+    uFbAmt: gl.getUniformLocation(progComp, 'uFbAmt'),
+    uFbDecay: gl.getUniformLocation(progComp, 'uFbDecay'),
+  uVhsGhostOn: gl.getUniformLocation(progComp, 'uVhsGhostOn'),
+  uVhsGhostAmt: gl.getUniformLocation(progComp, 'uVhsGhostAmt'),
+  uVhsGhostOffset: gl.getUniformLocation(progComp, 'uVhsGhostOffset'),
+      uPixOn: gl.getUniformLocation(progComp, 'uPixOn'),
+      uPixSize: gl.getUniformLocation(progComp, 'uPixSize'),
+      uPostOn: gl.getUniformLocation(progComp, 'uPostOn'),
+      uPostLevels: gl.getUniformLocation(progComp, 'uPostLevels'),
+  uTime: gl.getUniformLocation(progComp, 'uTime'),
+  uCAOn: gl.getUniformLocation(progComp, 'uCAOn'),
+  uCAAmt: gl.getUniformLocation(progComp, 'uCAAmt'),
+  uBlockOn: gl.getUniformLocation(progComp, 'uBlockOn'),
+  uBlockSize: gl.getUniformLocation(progComp, 'uBlockSize'),
+  uBlockScrOn: gl.getUniformLocation(progComp, 'uBlockScrOn'),
+  uBlockScrAmt: gl.getUniformLocation(progComp, 'uBlockScrAmt'),
+    };
+
+    // Distortion locs
+    const locDist = {
+      uTex: gl.getUniformLocation(progDist, 'uTex'),
+      uAmt: gl.getUniformLocation(progDist, 'uAmt'),
+      uCenter: gl.getUniformLocation(progDist, 'uCenter'),
+      uK2: gl.getUniformLocation(progDist, 'uK2'),
+      uWobOn: gl.getUniformLocation(progDist, 'uWobOn'),
+      uWobAmt: gl.getUniformLocation(progDist, 'uWobAmt'),
+      uWobSpeed: gl.getUniformLocation(progDist, 'uWobSpeed'),
+      uVhsOn: gl.getUniformLocation(progDist, 'uVhsOn'),
+      uVhsAmt: gl.getUniformLocation(progDist, 'uVhsAmt'),
+      uTime: gl.getUniformLocation(progDist, 'uTime'),
+  uGrainOn: gl.getUniformLocation(progDist, 'uGrainOn'),
+  uGrainAmt: gl.getUniformLocation(progDist, 'uGrainAmt'),
+      uBloomTex: gl.getUniformLocation(progDist, 'uBloomTex'),
+      uBloomStr: gl.getUniformLocation(progDist, 'uBloomStr'),
+      uBloomAfter: gl.getUniformLocation(progDist, 'uBloomAfter'),
+  uVigOn: gl.getUniformLocation(progDist, 'uVigOn'),
+  uVigAmt: gl.getUniformLocation(progDist, 'uVigAmt'),
+    };
+
+    // Fullscreen quad
+    const quadPos = new Float32Array([ -1,-1,  1,-1,  -1,1,  1,1 ]);
+    const quadUV = new Float32Array([  0, 0,  1, 0,   0,1,  1,1 ]);
+    const quadVBO = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+    gl.bufferData(gl.ARRAY_BUFFER, quadPos, gl.STATIC_DRAW);
+    const quadTBO = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadTBO);
+    gl.bufferData(gl.ARRAY_BUFFER, quadUV, gl.STATIC_DRAW);
+
+    const vaoQuad = gl.createVertexArray();
+    gl.bindVertexArray(vaoQuad);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadTBO);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    // FBO helpers (robust with fallbacks)
+    function makeColorTex(w,h) {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      return t;
+    }
+    function makeDepthTexFmt(w,h, ifmt) {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      // Use matching type for the chosen internalformat
+      const type = (ifmt === gl.DEPTH_COMPONENT16) ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
+      gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, gl.DEPTH_COMPONENT, type, null);
+      return t;
+    }
+  let sceneTex=null, sceneDepthTex=null, sceneFB=null;
+  let bloomA=null, bloomB=null, fbA=null, fbB=null;
+  let postTex=null, postFB=null;
+  let blackTex = null;
+  let usePost = true, hasDepthTex = true, depthRB = null;
+
+    function tryAllocScene(w,h, depthMode /* 'tex24'|'tex16'|'rb' */) {
+      // cleanup first
+      sceneTex && gl.deleteTexture(sceneTex); sceneTex=null;
+      sceneDepthTex && gl.deleteTexture(sceneDepthTex); sceneDepthTex=null;
+      depthRB && gl.deleteRenderbuffer(depthRB); depthRB=null;
+      sceneFB && gl.deleteFramebuffer(sceneFB); sceneFB=null;
+
+      sceneTex = makeColorTex(w,h);
+      sceneFB = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFB);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sceneTex, 0);
+
+      if (depthMode === 'tex24' || depthMode === 'tex16') {
+        const ifmt = depthMode === 'tex24' ? gl.DEPTH_COMPONENT24 : gl.DEPTH_COMPONENT16;
+        sceneDepthTex = makeDepthTexFmt(w,h, ifmt);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, sceneDepthTex, 0);
+        hasDepthTex = true;
+      } else {
+        depthRB = gl.createRenderbuffer();
+        gl.bindRenderbuffer(gl.RENDERBUFFER, depthRB);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRB);
+        hasDepthTex = false;
+      }
+
+      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return ok;
+    }
+
+    function allocFBOs(w,h) {
+      // Try in order: depth texture 24, 16, then renderbuffer
+      usePost = true;
+      if (!tryAllocScene(w,h,'tex24') && !tryAllocScene(w,h,'tex16') && !tryAllocScene(w,h,'rb')) {
+        console.warn('PostFX disabled: framebuffer incomplete');
+        usePost = false;
+      }
+
+      // Bloom targets
+      const bw = Math.max(1, w>>1), bh = Math.max(1, h>>1);
+      bloomA && gl.deleteTexture(bloomA); bloomA = makeColorTex(bw,bh);
+      bloomB && gl.deleteTexture(bloomB); bloomB = makeColorTex(bw,bh);
+      fbA && gl.deleteFramebuffer(fbA); fbA = gl.createFramebuffer();
+      fbB && gl.deleteFramebuffer(fbB); fbB = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbA);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, bloomA, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbB);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, bloomB, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  // Final post texture (composited image) so we can run a distortion pass
+  // Keep it same size as scene
+  postTex && gl.deleteTexture(postTex); postTex = makeColorTex(w,h);
+  postFB && gl.deleteFramebuffer(postFB); postFB = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, postTex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // Feedback ping-pong targets
+  if (!window._fbTexA) window._fbTexA = null;
+  if (!window._fbTexB) window._fbTexB = null;
+  if (window._fbTexA) gl.deleteTexture(window._fbTexA);
+  if (window._fbTexB) gl.deleteTexture(window._fbTexB);
+  window._fbTexA = makeColorTex(w,h);
+  window._fbTexB = makeColorTex(w,h);
+  // Framebuffers for feedback
+  if (!window._fbA) window._fbA = null; if (!window._fbB) window._fbB = null;
+  if (window._fbA) gl.deleteFramebuffer(window._fbA);
+  if (window._fbB) gl.deleteFramebuffer(window._fbB);
+  window._fbA = gl.createFramebuffer(); window._fbB = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbA);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, window._fbTexA, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, window._fbTexB, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // Clear freshly allocated feedback textures to black to avoid first-frame garbage
+  try {
+    if (window._fbA && window._fbTexA) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbA);
+      gl.viewport(0,0,w,h);
+      gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    if (window._fbB && window._fbTexB) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, window._fbB);
+      gl.viewport(0,0,w,h);
+      gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  } catch(e){ console.warn('[FB] clear during alloc failed', e); }
+  // one-pixel black texture used as a safe 'no-bloom' sampler
+  if (!blackTex) {
+    blackTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, blackTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const px = new Uint8Array([0,0,0,255]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  }
+  console.log('[GL] allocFBOs created FBOs, sizes', w, h);
+    }
+
+    // Math helpers
+    function mat4Perspective(fovy, aspect, near, far) {
+      const f = 1/Math.tan(fovy/2), nf = 1/(near - far);
+      return new Float32Array([
+        f/aspect,0,0,0,
+        0,f,0,0,
+        0,0,(far+near)*nf,-1,
+        0,0,(2*far*near)*nf,0
+      ]);
+    }
+    function vec3Normalize(v){ const l=Math.hypot(v[0],v[1],v[2])||1; return [v[0]/l,v[1]/l,v[2]/l]; }
+    function vec3Cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+    function mat4LookAt(eye, center, up) {
+      const f = vec3Normalize([center[0]-eye[0], center[1]-eye[1], center[2]-eye[2]]);
+      const s = vec3Normalize(vec3Cross(f, up));
+      const u = vec3Cross(s, f);
+      return new Float32Array([
+        s[0], u[0], -f[0], 0,
+        s[1], u[1], -f[1], 0,
+        s[2], u[2], -f[2], 0,
+        -(s[0]*eye[0]+s[1]*eye[1]+s[2]*eye[2]),
+        -(u[0]*eye[0]+u[1]*eye[1]+u[2]*eye[2]),
+        f[0]*eye[0]+f[1]*eye[1]+f[2]*eye[2],
+        1
+      ]);
+    }
+    function mat4Mul(a,b){ const o=new Float32Array(16); for(let r=0;r<4;r++)for(let c=0;c<4;c++) o[c*4+r]=a[0*4+r]*b[c*4+0]+a[1*4+r]*b[c*4+1]+a[2*4+r]*b[c*4+2]+a[3*4+r]*b[c*4+3]; return o; }
+
+    // Camera + BG + resize
+    const fovy = Math.PI/4;
+    const near = 0.01, far = 1000;
+
+    const camera = { mode:'orbit', yaw: 0, pitch: 0.96, dist: 9, target: [0,0,0], eye: [0,0,9] };
+    function planeCenterZ() { return DEPTH_SLICES * 0.5 * 0.06; }
+    function resetCamera() {
+      camera.mode='orbit'; camera.yaw = 0; camera.pitch = 0.96; camera.dist = 9;
+      camera.target = (shapeSel.value === 'plane') ? [0,0, planeCenterZ()] : [0,0,0];
+    }
+    function forwardVec(){ return [Math.sin(camera.yaw)*Math.cos(camera.pitch), Math.sin(camera.pitch), Math.cos(camera.yaw)*Math.cos(camera.pitch)]; }
+    function rightVec(){ const f=forwardVec(); const l=Math.hypot(f[0],0,f[2])||1; return [ f[2]/l, 0, -f[0]/l ]; }
+    function upVec(){ return [0,1,0]; }
+    function getOrbitEye() {
+      const cx = Math.sin(camera.yaw) * Math.cos(camera.pitch) * camera.dist;
+      const cy = Math.sin(camera.pitch) * camera.dist;
+      const cz = Math.cos(camera.yaw) * Math.cos(camera.pitch) * camera.dist;
+      return [camera.target[0] + cx, camera.target[1] + cy, camera.target[2] + cz];
+    }
+    function len3(a,b){ const dx=a[0]-b[0], dy=a[1]-b[1], dz=a[2]-b[2]; return Math.hypot(dx,dy,dz); }
+    function enterFly(){ camera.eye = getOrbitEye(); camera.mode = 'fly'; }
+    function exitFly(){ camera.dist = Math.max(0.1, len3(camera.eye, camera.target)); camera.mode = 'orbit'; }
+    function cameraMatrices() {
+      const aspect = canvas.width / canvas.height;
+      const proj = mat4Perspective(fovy, aspect, near, far);
+      if (camera.mode==='orbit') {
+        const eye = getOrbitEye(); camera.eye = eye;
+        const view = mat4LookAt(eye, camera.target, [0,1,0]);
+        return { proj, view };
+      } else {
+        const f = forwardVec();
+        const center = [camera.eye[0]+f[0], camera.eye[1]+f[1], camera.eye[2]+f[2]];
+        const view = mat4LookAt(camera.eye, center, [0,1,0]);
+        return { proj, view };
+      }
+    }
+    function frameObject() {
+      const aspect = canvas.width / canvas.height;
+      const base = Math.min(canvas.width, canvas.height) / 100.0;
+      const planeW = base * 3.5;
+      const planeD = base * 3.8;
+      const radius = base * 1.4;
+      const hMul = parseFloat(heightSlider.value);
+      const sx = parseFloat(sxEl.value), sy = parseFloat(syEl.value), sz = parseFloat(szEl.value);
+      const shape = shapeSel.value;
+      let R = 1;
+      if (shape === 'plane') {
+        const rXY = Math.hypot(planeW*0.5*sx, planeD*0.5*sz);
+        const h = 160.0 * hMul * sy;
+        R = Math.hypot(rXY, h);
+      } else if (shape === 'sphere') {
+        R = radius * (1 + 0.25 * hMul) * Math.max(sx, sy, sz);
+      } else {
+        R = radius * (1 + 0.22 * hMul) * Math.max(sx, sy, sz);
+      }
+      const dVert = R / Math.tan(fovy/2);
+      const hfov = 2 * Math.atan(Math.tan(fovy/2) * aspect);
+      const dHorz = R / Math.tan(hfov/2);
+      const pad = 1.15;
+      const target = (shape === 'plane') ? [0,0, planeCenterZ()] : [0,0,0];
+      camera.target = target;
+      camera.dist = Math.max(dVert, dHorz) * pad;
+      if (camera.mode === 'fly') {
+        const f = forwardVec();
+        camera.eye = [ target[0]-f[0]*camera.dist, target[1]-f[1]*camera.dist, target[2]-f[2]*camera.dist ];
+      }
+    }
+
+    // GL state
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+
+    // BG color
+    function hexToRgb01(hex){ let h=(hex||'#fff').replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255].map(v=>v/255); }
+    function applyBG(){ const c = hexToRgb01(bgColorEl.value); gl.clearColor(c[0], c[1], c[2], 1); }
+    bgColorEl.addEventListener('input', applyBG);
+
+    // Resize and FBOs
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    function resize(){
+      const w = Math.floor(window.innerWidth * DPR);
+      const h = Math.floor(window.innerHeight * DPR);
+      canvas.width = w; canvas.height = h;
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      gl.viewport(0,0,w,h);
+      allocFBOs(w,h);
+    }
+
+    // Init
+    window.addEventListener('resize', resize);
+    applyBG();
+    resize();
+    resetCamera();
+    frameObject();
+    canvas.addEventListener('dblclick', resetCamera);
+
+    // Input state
+    const keys = new Set();
+    let dragMoved = false, dragging = false, dragMode = 'orbit', lastX=0, lastY=0;
+    let middleDown = false;
+
+    function cameraBasisPan() {
+      const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
+      const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
+      const right = [cy, -sp*sy, cp*sy];
+      const up = [0, cp, sp];
+      return { right, up };
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      dragging = true; dragMoved = false; lastX=e.clientX; lastY=e.clientY;
+      dragMode = (e.button===2 || e.button===1 || e.shiftKey) ? 'pan' : 'orbit';
+      if (e.button === 1) middleDown = true;
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = (dragMode==='pan') ? 'move' : 'grabbing';
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY; if (dx||dy) dragMoved = true;
+
+      if (dragMode==='orbit') {
+        camera.yaw += dx * 0.005;
+        camera.pitch += dy * 0.005;
+        camera.pitch = Math.max(0.1, Math.min(1.5, camera.pitch));
+      } else {
+        if (camera.mode==='orbit') {
+          const { right, up } = cameraBasisPan();
+          const panScale = camera.dist * 0.003;
+          camera.target[0] += (-dx * panScale) * right[0] + (dy * panScale) * up[0];
+          camera.target[1] += (-dx * panScale) * right[1] + (dy * panScale) * up[1];
+          camera.target[2] += (-dx * panScale) * right[2] + (dy * panScale) * up[2];
+        } else {
+          const r = rightVec(), u = upVec();
+          const panScale = 0.01 * camera.dist;
+          camera.eye[0] += (-dx * panScale) * r[0] + (dy * panScale) * u[0];
+          camera.eye[1] += (-dx * panScale) * r[1] + (dy * panScale) * u[1];
+          camera.eye[2] += (-dx * panScale) * r[2] + (dy * panScale) * u[2];
+        }
+      }
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      dragging = false; canvas.releasePointerCapture(e.pointerId);
+      if (e.button === 1) middleDown = false;
+      canvas.style.cursor = 'grab';
+    });
+    canvas.addEventListener('pointercancel', () => { dragging=false; middleDown=false; canvas.style.cursor='grab'; });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (camera.mode==='fly') {
+
+        if (middleDown) {
+          // Middle wheel: adjust Fly speed
+          const min = parseFloat(flySpeedEl.min || '0.5');
+          const max = parseFloat(flySpeedEl.max || '20');
+          let cur = parseFloat(flySpeedEl.value);
+          // Exponential scaling feels better
+          cur *= Math.exp(-e.deltaY * 0.0015);
+          cur = Math.min(max, Math.max(min, cur));
+          flySpeedEl.value = String(cur.toFixed(2));
+        } else {
+          // Wheel: move forward/back
+          const sign = Math.sign(e.deltaY);
+          let speed = parseFloat(flySpeedEl.value);
+          // Auto scale by distance so large scenes don’t feel slow
+          speed *= Math.max(0.5, camera.dist / 9);
+          const f = forwardVec();
+          const mult = (keys.has('ShiftLeft')||keys.has('ShiftRight')) ? 3 : (keys.has('ControlLeft')||keys.has('ControlRight')) ? 0.25 : 1;
+          const step = -sign * speed * 0.1 * mult;
+          camera.eye[0] += f[0]*step; camera.eye[1] += f[1]*step; camera.eye[2] += f[2]*step;
+        }
+      } else {
+        // Orbit zoom
+        const factor = Math.exp(e.deltaY * 0.001);
+        camera.dist = Math.max(2.5, Math.min(200, camera.dist * factor));
+      }
+    }, { passive:false });
+
+    // Toggle Fly via UI and key
+    flyOnEl.addEventListener('change', () => {
+      if (flyOnEl.checked) enterFly(); else exitFly();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { e.preventDefault(); if (audio.paused) { ensureAudio(); audioCtx.resume(); audio.play(); } else audio.pause(); }
+      else if (e.code === 'KeyH') ui.classList.toggle('off');
+      else if (e.code === 'KeyD') {
+        // Ignore when typing in text inputs or textareas
+        const tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          if (typeof debugOnEl !== 'undefined' && debugOnEl) {
+            debugOnEl.checked = !debugOnEl.checked;
+            debugOnEl.dispatchEvent(new Event('change'));
+          }
+        }
+      }
+      else if (e.code === 'KeyF') frameObject();
+      else if (e.code === 'KeyC') { flyOnEl.checked = !flyOnEl.checked; flyOnEl.dispatchEvent(new Event('change')); }
+      else if (e.code === 'KeyR') autoRotOnEl.checked = !autoRotOnEl.checked;
+      else if (e.code === 'F11' || (e.code === 'Enter' && e.altKey)) { e.preventDefault(); toggleFullscreen(); }
+      keys.add(e.code);
+    });
+    window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+    shapeSel.addEventListener('change', resetCamera);
+
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files && fileInput.files[0]; if (!f) return;
+      const url = URL.createObjectURL(f); audio.src = url; audio.load();
+      // Auto play after load for convenience (will succeed due to user gesture selecting file)
+  ensureAudio();
+  audio.play().then(()=>console.log('[Audio] Playing selected file')).catch(err=>console.warn('[Audio] Autoplay failed', err));
+    });
+    // Playback button handlers
+    function updatePlaybackButtons(){
+  const canPlay = !!audio.src || systemAudioOn;
+  // Diagnostic logging to help track button state when debugging
+  console.log('[PlaybackButtons] canPlay=', canPlay, 'audio.src=', audio.src, 'systemAudioOn=', systemAudioOn, 'audio.paused=', audio.paused);
+  playBtn.disabled = !canPlay || !audio.paused;
+  pauseBtn.disabled = !canPlay || audio.paused;
+  console.log('[PlaybackButtons] playBtn.disabled=', playBtn.disabled, 'pauseBtn.disabled=', pauseBtn.disabled);
+    }
+    playBtn.addEventListener('click', async () => {
+      console.log('[Play] clicked', { src: audio.src, systemAudioOn, paused: audio.paused, audioCtxExists: !!audioCtx });
+      if (!audio.src && !systemAudioOn) {
+        console.warn('[Audio] No audio source. Load a file or enable System Audio.');
+        return;
+      }
+      ensureAudio();
+      // Try to resume audio context if available
+      try {
+        if (audioCtx) {
+          await audioCtx.resume();
+          console.log('[Play] audioCtx resumed');
+        }
+      } catch (err) {
+        console.warn('[Play] audioCtx.resume() failed', err);
+      }
+
+      // Attempt to start playback. Await the promise so we can catch rejections.
+      if (!systemAudioOn) {
+        try {
+          await audio.play();
+          console.log('[Audio] Play started');
+        } catch (err) {
+          console.error('[Audio] Play failed', err);
+          // Some browsers reject play() without a user gesture; inform the user
+          alert('Playback failed: ' + (err && err.message ? err.message : String(err)));
+        }
+      } else {
+        try { if (audioCtx) await audioCtx.resume(); } catch(_){}
+        console.log('[Audio] System audio capture active; context resumed');
+      }
+      updatePlaybackButtons();
+    });
+    pauseBtn.addEventListener('click', () => {
+      if (!systemAudioOn) audio.pause();
+      // For system audio, we keep analyser running; optional: suspend context
+      console.log('[Audio] Pause pressed');
+      updatePlaybackButtons();
+    });
+
+    // Reflect play/pause state in buttons
+  pauseBtn.disabled = true;
+  audio.addEventListener('play', () => { updatePlaybackButtons(); });
+  audio.addEventListener('pause', () => { updatePlaybackButtons(); });
+  fileInput.addEventListener('change', () => setTimeout(updatePlaybackButtons, 50));
+  systemAudioEl.addEventListener('change', () => { setTimeout(updatePlaybackButtons, 50); });
+  updatePlaybackButtons();
+
+    // --- Preset Save / Load ---
+    function collectPreset(){
+      const data = {};
+      ui.querySelectorAll('input, select').forEach(el => {
+        if (!el.id) return;
+        if (el === fileInput || el === presetFileEl) return; // skip file pickers
+        if (el.type === 'checkbox') data[el.id] = !!el.checked;
+        else data[el.id] = el.value;
+      });
+      // Persist learned MIDI map if present
+      try { data.__midiMap = JSON.stringify(midiMap); } catch(_){}
+      return { _format: 'music_viz_preset', version: 2, created: new Date().toISOString(), data };
+    }
+    function applyPreset(preset){
+      console.log('[Preset] Loading preset...', preset);
+      if (!preset || preset._format !== 'music_viz_preset') { console.warn('Invalid preset file'); return; }
+      const data = preset.data || {};
+      Object.keys(data).forEach(id => {
+        if (id === '__midiMap') return;
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.type === 'checkbox') {
+          el.checked = !!data[id];
+          el.dispatchEvent(new Event('change', { bubbles:true }));
+        } else {
+          el.value = data[id];
+          el.dispatchEvent(new Event('input', { bubbles:true }));
+          el.dispatchEvent(new Event('change', { bubbles:true }));
+        }
+      });
+      if (data.__midiMap) {
+        try { const m = JSON.parse(data.__midiMap); Object.assign(midiMap, m); localStorage.setItem('midiLearnMap', JSON.stringify(midiMap)); } catch(_){}
+      }
+      // Re-frame object in case geometry scaling changed
+      frameObject();
+      console.log('[Preset] Applied');
+    }
+    presetSaveBtn.addEventListener('click', () => {
+      const preset = collectPreset();
+      const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'music_viz_preset.json';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    });
+    presetLoadBtn.addEventListener('click', () => presetFileEl.click());
+  presetFileEl.addEventListener('change', () => {
+      const f = presetFileEl.files && presetFileEl.files[0]; if (!f) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+    try { const json = JSON.parse(e.target.result); applyPreset(json); }
+    catch(err){ console.error('Failed to load preset', err); }
+      };
+      reader.readAsText(f);
+      // reset input so same file can be reloaded if desired
+      presetFileEl.value = '';
+    });
+
+    // Fullscreen helpers
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) canvas.requestFullscreen?.(); else document.exitFullscreen?.();
+    }
+
+    // MIDI support
+    let midiAccess = null;
+    let midiEnabled = false;
+    const midiCCMap = {
+      // CC -> input element (ranges)
+      1: heightSlider, 2: speedSlider, 3: brightSlider, 4: geoResEl, 5: aoStrEl, 6: bloomStrEl, 7: dofFocusEl,
+      8: dofBlurEl, 9: vigAmtEl, 10: grainAmtEl, 11: pixSizeEl, 12: tiltEl, 13: sxEl,  14: syEl, 15: szEl, 16: wireWEl
+    };
+    const midiToggleMap = {
+      20: fillOnEl, 21: wireOnEl, 22: lightingOnEl, 23: aoOnEl, 24: bloomOnEl, 25: dofOnEl, 26: vigOnEl,
+      27: grainOnEl, 28: pixOnEl, 29: postOnEl, 30: shadowOnEl, 31: autoNormEl, 32: logFreqEl, 33: twoSidedEl, 34: autoRotOnEl
+    };
+
+    // Ensure sections start collapsed even if HTML cached with 'open'
+    document.querySelectorAll('#ui details').forEach(d => d.removeAttribute('open'));
+
+    // MIDI Learn + dynamic mappings
+    let midiLearnOn = false;
+    let currentLearnTargetEl = null;
+    const midiMap = {}; // cc -> { id, kind }
+
+    function kindForElement(el) {
+      if (!el) return null;
+      if (el.tagName === 'SELECT') return 'select';
+      if (el.type === 'checkbox') return 'toggle';
+      if (el.type === 'range' || el.type === 'color') return 'range';
+      return null;
+    }
+    function selectLearnTarget(el) {
+      if (!midiLearnOn) return;
+      if (currentLearnTargetEl) currentLearnTargetEl.classList.remove('learn-target');
+      const kind = kindForElement(el);
+      if (!kind) return;
+      currentLearnTargetEl = el;
+      el.classList.add('learn-target');
+    }
+    function clearLearnTarget() {
+      if (currentLearnTargetEl) currentLearnTargetEl.classList.remove('learn-target');
+      currentLearnTargetEl = null;
+    }
+
+    midiLearnEl?.addEventListener('change', () => {
+      midiLearnOn = !!midiLearnEl.checked;
+      ui.classList.toggle('learn', midiLearnOn);
+      if (!midiLearnOn) clearLearnTarget();
+    });
+
+    // Make UI controls clickable targets during Learn
+    Array.from(ui.querySelectorAll('input, select')).forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (midiLearnOn) { selectLearnTarget(el); e.stopPropagation(); }
+      });
+    });
+
+    // Apply CC to mapped element
+    function applyCCToElement(el, ccVal) {
+      if (!el) return;
+      const kind = kindForElement(el);
+      if (kind === 'range') {
+        const min = parseFloat(el.min ?? 0), max = parseFloat(el.max ?? 1);
+        const raw = min + (max - min) * (ccVal / 127);
+        const step = parseFloat(el.step || '0');
+        let v = raw;
+        if (!isNaN(step) && step > 0) {
+          const steps = Math.round((raw - min) / step);
+            v = min + steps * step;
+            // Clamp precision to step decimals
+            const stepDec = (step.toString().split('.')[1] || '').length;
+            el.value = v.toFixed(stepDec);
+        } else {
+          el.value = String(v);
+        }
+        el.dispatchEvent(new Event('input', { bubbles:true }));
+      } else if (kind === 'select') {
+        const n = el.options.length;
+        const idx = Math.min(n - 1, Math.max(0, Math.round((ccVal / 127) * (n - 1))));
+        el.selectedIndex = idx;
+        el.dispatchEvent(new Event('change', { bubbles:true }));
+      }
+      // Note: toggles are handled with latching in onMIDIMessage
+    }
+
+    // Latching toggle (fires on rising edge only)
+    const prevCCVals = {};
+    function applyToggleLatch(el, cc, val) {
+      const prev = prevCCVals[cc] ?? 0;
+      if (prev < 64 && val >= 64) {
+        el.checked = !el.checked;
+        el.dispatchEvent(new Event('change', { bubbles:true }));
+      }
+      prevCCVals[cc] = val;
+    }
+
+    function onMIDIMessage(ev){
+      if (!midiEnabled) return;
+      const [st, d1, d2] = ev.data;
+      const type = st & 0xF0;
+      if (type === 0xB0) {
+        const cc = d1, val = d2;
+
+        // Learn: bind CC -> selected element
+        if (midiLearnOn && currentLearnTargetEl) {
+          const kind = kindForElement(currentLearnTargetEl);
+          if (kind) {
+            midiMap[cc] = { id: currentLearnTargetEl.id, kind };
+            currentLearnTargetEl.classList.add('learn-target');
+            setTimeout(() => clearLearnTarget(), 120);
+          }
+          return;
+        }
+
+        // Dynamic mapping first
+        const m = midiMap[cc];
+        if (m?.id) {
+          const el = document.getElementById(m.id);
+          if (m.kind === 'toggle') applyToggleLatch(el, cc, val);
+          else applyCCToElement(el, val);
+          return;
+        }
+
+        // Fallback to static defaults
+        if (midiCCMap[cc]) {
+          applyCCToElement(midiCCMap[cc], val);
+        } else if (midiToggleMap[cc]) {
+          applyToggleLatch(midiToggleMap[cc], cc, val);
+        }
+      }
+    }
+
+    // --- MIDI access / lifecycle ---
+    function setMIDIStatus(msg, color='#ccc') {
+      if (midiStatusEl) midiStatusEl.innerHTML = msg.replace(/\n/g,'<br>');
+      if (midiStatusEl) midiStatusEl.style.color = color;
+    }
+
+    function listInputs() {
+      if (!midiAccess) return '(no inputs)';
+      let txt = [];
+      midiAccess.inputs.forEach(inp => {
+        txt.push(`${inp.name}${inp.manufacturer ? ' — '+inp.manufacturer : ''}`);
+      });
+      return txt.length ? txt.join(', ') : '(no inputs)';
+    }
+
+    function updateMIDIStatus() {
+      if (!midiEnabled) return;
+      setMIDIStatus(`MIDI Enabled\nInputs: ${listInputs()}`, '#9fd3ff');
+    }
+
+    function attachMIDIInputs() {
+      if (!midiAccess) return;
+      midiAccess.inputs.forEach(input => { input.onmidimessage = onMIDIMessage; });
+      updateMIDIStatus();
+    }
+
+    function handleMIDIStateChange() {
+      attachMIDIInputs();
+    }
+
+    async function enableMIDI() {
+      if (midiEnabled) { updateMIDIStatus(); return; }
+      if (!window.isSecureContext) {
+        setMIDIStatus('WebMIDI needs secure context.\nServe via: python3 -m http.server', '#f88');
+        return;
+      }
+      if (!('requestMIDIAccess' in navigator)) {
+        setMIDIStatus('WebMIDI not supported in this browser.\nUse Chrome / Edge.', '#f88');
+        return;
+      }
+      midiOnEl.disabled = true;
+      setMIDIStatus('Enabling MIDI…', '#ffdb7a');
+      try {
+        midiAccess = await navigator.requestMIDIAccess({ sysex:false });
+        midiAccess.addEventListener('statechange', handleMIDIStateChange);
+        midiEnabled = true;
+        // Load persistent learned map
+        const saved = localStorage.getItem('midiLearnMap');
+        if (saved) {
+          try { Object.assign(midiMap, JSON.parse(saved)); } catch(_) {}
+        }
+        attachMIDIInputs();
+        setMIDIStatus(`MIDI Enabled\nInputs: ${listInputs()}`, '#9fd3ff');
+        console.log('[MIDI] Enabled');
+      } catch (err) {
+        console.error('Failed to get MIDI access', err);
+        setMIDIStatus(`Failed to enable MIDI:\n${err && err.message ? err.message : err}`, '#f88');
+        // Leave checkbox unchecked to reflect failure
+        midiOnEl.checked = false;
+      } finally {
+        midiOnEl.disabled = false;
+      }
+    }
+
+    function disableMIDI() {
+      if (!midiEnabled) { setMIDIStatus('MIDI Off'); return; }
+      midiEnabled = false;
+      if (midiAccess) {
+        midiAccess.removeEventListener('statechange', handleMIDIStateChange);
+        midiAccess.inputs.forEach(inp => inp.onmidimessage = null);
+      }
+      setMIDIStatus('MIDI Off', '#ccc');
+      console.log('[MIDI] Disabled');
+    }
+
+    // Replace previous midiOnEl change listener with this:
+    midiOnEl.addEventListener('change', () => {
+      if (midiOnEl.checked) enableMIDI(); else disableMIDI();
+    });
+
+    // Initialize status
+    setMIDIStatus('MIDI Off');
+
+    // Rendering
+    let lastTime = performance.now();
+    const lightDir = [-0.4, 0.8, 0.4];
+  const startTime = performance.now();
+
+    function draw(now) {
+      try {
+        const dt = Math.min(0.05, (now - lastTime) / 1000);
+        lastTime = now;
+
+  // Pass animated time to post FX shader for grain animation
+  const t = (performance.now() - startTime) * 0.001;
+
+      if (autoRotOnEl.checked && camera.mode==='orbit') {
+        camera.yaw += (parseFloat(autoRotSpeedEl.value) * Math.PI/180) * dt;
+      }
+
+      if (camera.mode==='fly') {
+        const f = forwardVec(), r = rightVec(), u = upVec();
+        let speed = parseFloat(flySpeedEl.value);
+        speed *= Math.max(0.5, camera.dist / 9);
+        if (keys.has('ShiftLeft')||keys.has('ShiftRight')) speed *= 3;
+        if (keys.has('ControlLeft')||keys.has('ControlRight')) speed *= 0.25;
+        const step = speed * dt;
+        if (keys.has('KeyW')) { camera.eye[0]+=f[0]*step; camera.eye[1]+=f[1]*step; camera.eye[2]+=f[2]*step; }
+        if (keys.has('KeyS')) { camera.eye[0]-=f[0]*step; camera.eye[1]-=f[1]*step; camera.eye[2]-=f[2]*step; }
+        if (keys.has('KeyA')) { camera.eye[0]-=r[0]*step; camera.eye[1]-=r[1]*step; camera.eye[2]-=r[2]*step; }
+        if (keys.has('KeyD')) { camera.eye[0]+=r[0]*step; camera.eye[1]+=r[1]*step; camera.eye[2]+=r[2]*step; }
+        if (keys.has('KeyQ')) { camera.eye[0]-=u[0]*step; camera.eye[1]-=u[1]*step; camera.eye[2]-=u[2]*step; }
+        if (keys.has('KeyE')) { camera.eye[0]+=u[0]*step; camera.eye[1]+=u[1]*step; camera.eye[2]+=u[2]*step; }
+      }
+
+      // Update spectrum history
+      if (analyser) {
+        sampleSpectrumRow();
+        const rowsPerSec = 38 * parseFloat(speedSlider.value);
+        shiftAcc += rowsPerSec * dt;
+        let steps = Math.floor(shiftAcc);
+        if (steps > 0) {
+          shiftAcc -= steps;
+          gl.bindTexture(gl.TEXTURE_2D, ampTex);
+          while (steps--) {
+            head = (head - 1 + texH) % texH;
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, head, texW, 1, gl.RED, gl.UNSIGNED_BYTE, lastSlice);
+          }
+        }
+      }
+
+      const { proj, view } = cameraMatrices();
+      const mvp = mat4Mul(proj, view);
+
+      // Decide render path
+      if (usePost) {
+        // 1) Render 3D to scene FBO
+        gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFB);
+        gl.viewport(0,0,canvas.width,canvas.height);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // Two-sided toggle (culling)
+        if (twoSidedEl.checked) gl.disable(gl.CULL_FACE); else { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); }
+
+        // Shadows
+        if (lightingOnEl.checked && (shadowOnEl?.checked)) {
+          gl.useProgram(progShadow);
+          gl.bindVertexArray(vao3D);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, ampTex);
+          gl.uniform1i(locSh.uAmp, 0);
+          gl.uniform1i(locSh.uHead, head);
+          gl.uniform1i(locSh.uW, texW);
+          gl.uniform1i(locSh.uH, texH);
+          const lead = leadingSel.value;
+          const flowAxis = (lead[0] === 'u') ? 1 : 0;
+          const flowSign = (lead[1] === '0') ? +1 : -1;
+          gl.uniform1i(locSh.uFlowAxis, flowAxis);
+          gl.uniform1i(locSh.uFlowSign, flowSign);
+
+          const base = Math.min(canvas.width, canvas.height) / 100.0;
+          gl.uniform1f(locSh.uPlaneW, base * 3.5);
+          gl.uniform1f(locSh.uPlaneD, base * 3.8);
+          gl.uniform1f(locSh.uRadius, base * 1.4);
+
+          const shapeMap = { plane:0, sphere:1, cube:2, pyramid:3 };
+          gl.uniform1i(locSh.uShape, shapeMap[shapeSel.value] || 0);
+          gl.uniform1i(locSh.uHeightAxis, ({y:0,x:1,z:2})[axisSel.value] ?? 0);
+          gl.uniform1f(locSh.uHeight, parseFloat(heightSlider.value));
+          gl.uniform3f(locSh.uScale, parseFloat(sxEl.value), parseFloat(syEl.value), parseFloat(szEl.value));
+          gl.uniformMatrix4fv(locSh.uMVP, false, mvp);
+          gl.uniform3f(locSh.uLightDir, -0.4, 0.8, 0.4);
+
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.uniform1f(locSh.uShadowAlpha, parseFloat(shadowAlphaEl?.value ?? '0.35'));
+          gl.drawArrays(gl.TRIANGLES, 0, vertCount);
+          gl.disable(gl.BLEND);
+        }
+
+        // Main object
+        gl.useProgram(prog3D);
+        gl.bindVertexArray(vao3D);
+        gl.uniformMatrix4fv(loc3D.uMVP, false, mvp);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, ampTex);
+        gl.uniform1i(loc3D.uHead, head);
+        gl.uniform1f(loc3D.uHeight, parseFloat(heightSlider.value));
+
+        const lead = leadingSel.value;
+        const flowAxis = (lead[0] === 'u') ? 1 : 0;
+        const flowSign = (lead[1] === '0') ? +1 : -1;
+        gl.uniform1i(loc3D.uFlowAxis, flowAxis);
+        gl.uniform1i(loc3D.uFlowSign, flowSign);
+
+        const base = Math.min(canvas.width, canvas.height) / 100.0;
+        gl.uniform1f(loc3D.uPlaneW, base * 3.5);
+        gl.uniform1f(loc3D.uPlaneD, base * 3.8);
+        gl.uniform1f(loc3D.uRadius, base * 1.4);
+
+        const shapeMap = { plane:0, sphere:1, cube:2, pyramid:3 };
+        gl.uniform1i(loc3D.uShape, shapeMap[shapeSel.value] || 0);
+
+        const fc = hexToRgb01(fillColorEl.value);
+        const wc = hexToRgb01(wireColorEl.value);
+        gl.uniform3f(loc3D.uFillColor, fc[0], fc[1], fc[2]);
+        gl.uniform3f(loc3D.uWireColor, wc[0], wc[1], wc[2]);
+
+        // Gradient uniforms
+        const fA = hexToRgb01(fillColAEl.value), fB = hexToRgb01(fillColBEl.value);
+        const wA = hexToRgb01(wireColAEl.value), wB = hexToRgb01(wireColBEl.value);
+        gl.uniform1i(loc3D.uFillGradOn, fillGradOnEl.checked ? 1 : 0);
+        gl.uniform3f(loc3D.uFillColA, fA[0], fA[1], fA[2]);
+        gl.uniform3f(loc3D.uFillColB, fB[0], fB[1], fB[2]);
+        gl.uniform1f(loc3D.uFillAngleDeg, parseFloat(fillAngleEl.value));
+        gl.uniform1i(loc3D.uWireGradOn, wireGradOnEl.checked ? 1 : 0);
+        gl.uniform3f(loc3D.uWireColA, wA[0], wA[1], wA[2]);
+        gl.uniform3f(loc3D.uWireColB, wB[0], wB[1], wB[2]);
+        gl.uniform1f(loc3D.uWireAngleDeg, parseFloat(wireAngleEl.value));
+
+        gl.uniform1f(loc3D.uBrightness, parseFloat(brightSlider.value));
+        gl.uniform1f(loc3D.uWireWidth, parseFloat(wireWEl.value));
+        gl.uniform1i(loc3D.uWireOn, wireOnEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uFillOn, fillOnEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uHeightAxis, ({y:0,x:1,z:2})[axisSel.value] ?? 0);
+        gl.uniform1i(loc3D.uTwoSided, twoSidedEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uLightingOn, lightingOnEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uAOOn, (aoOnEl?.checked) ? 1 : 0);
+        gl.uniform1f(loc3D.uAOStr, parseFloat(aoStrEl?.value ?? '1.0'));
+        gl.uniform3f(loc3D.uScale, parseFloat(sxEl.value), parseFloat(syEl.value), parseFloat(szEl.value));
+        gl.drawArrays(gl.TRIANGLES, 0, vertCount);
+        gl.bindVertexArray(null);
+
+        // 2) Bloom
+        const doBloom = bloomOnEl.checked;
+        const bw = Math.max(1, canvas.width>>1), bh = Math.max(1, canvas.height>>1);
+        if (doBloom) {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fbA);
+          gl.viewport(0,0,bw,bh);
+          gl.disable(gl.DEPTH_TEST);
+          gl.useProgram(progDown);
+          gl.bindVertexArray(vaoQuad);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+          gl.uniform1i(locDown.uTex, 0);
+          gl.uniform1f(locDown.uThreshold, parseFloat(bloomThEl.value));
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fbB);
+          gl.useProgram(progBlur);
+          gl.bindVertexArray(vaoQuad);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, bloomA);
+          gl.uniform1i(locBlur.uTex, 0);
+          gl.uniform2f(locBlur.uTexel, 1/bw, 1/bh);
+          const br = Math.max(1, parseInt(bloomBlurEl.value,10));
+          gl.uniform2f(locBlur.uDir, br, 0);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fbA);
+          gl.bindTexture(gl.TEXTURE_2D, bloomB);
+          gl.uniform2f(locBlur.uDir, 0, br);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+
+        // 3) Composite into postFB (so we can run a final distortion pass)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
+        gl.viewport(0,0,canvas.width,canvas.height);
+        gl.disable(gl.DEPTH_TEST);
+        gl.useProgram(progComp);
+        gl.bindVertexArray(vaoQuad);
+
+  // animated grain time
+  gl.uniform1f(locComp.uTime, t);
+
+        // Bind feedback texture (ping-pong read) if available
+        if (window._fbTexA && window._fbTexB) {
+          // choose which texture is 'read' this frame; default to _fbTexA when not set
+          if (typeof window._fbPing === 'undefined') window._fbPing = 0;
+          const readTex = window._fbPing === 0 ? window._fbTexA : window._fbTexB;
+          gl.activeTexture(gl.TEXTURE3);
+          gl.bindTexture(gl.TEXTURE_2D, readTex);
+          if (locComp.uFeedbackTex) gl.uniform1i(locComp.uFeedbackTex, 3);
+          if (locComp.uFbOn) gl.uniform1i(locComp.uFbOn, fbOn?.checked ? 1 : 0);
+          if (locComp.uFbAmt) gl.uniform1f(locComp.uFbAmt, parseFloat(fbAmt?.value || '0.0'));
+          if (locComp.uFbDecay) gl.uniform1f(locComp.uFbDecay, parseFloat(fbDecay?.value || '0.95'));
+          // VHS ghosting uniforms: reuse VHS controls if available, otherwise defaults
+          if (locComp.uVhsGhostOn) gl.uniform1i(locComp.uVhsGhostOn, (vhsOnEl?.checked && fbOn?.checked) ? 1 : 0);
+          if (locComp.uVhsGhostAmt) gl.uniform1f(locComp.uVhsGhostAmt, parseFloat(vhsAmt?.value || '0.15'));
+          if (locComp.uVhsGhostOffset) gl.uniform1f(locComp.uVhsGhostOffset, parseFloat(vhsAmt?.value || '0.015'));
+        } else {
+          if (locComp.uFbOn) gl.uniform1i(locComp.uFbOn, 0);
+        }
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+        gl.uniform1i(locComp.uScene, 0);
+
+  // If bloom should be applied after distortion, keep composite bloom input empty (use black)
+  const applyBloomAfter = distBloomAfterEl.checked;
+        gl.activeTexture(gl.TEXTURE1);
+        if (doBloom && applyBloomAfter) {
+          // reserve bloom for post-distortion pass: provide black here so composite has no bloom
+          gl.bindTexture(gl.TEXTURE_2D, blackTex);
+        } else {
+          gl.bindTexture(gl.TEXTURE_2D, (doBloom ? bloomA : sceneTex));
+        }
+  gl.uniform1i(locComp.uBloom, 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, hasDepthTex ? sceneDepthTex : sceneTex);
+        gl.uniform1i(locComp.uDepth, 2);
+
+        gl.uniform1f(locComp.uStrength, parseFloat(bloomStrEl.value));
+        gl.uniform1f(locComp.uBrightness, 1.0);
+
+        gl.uniform1i(locComp.uDOFOn, (hasDepthTex && dofOnEl.checked) ? 1 : 0);
+        gl.uniform1f(locComp.uNear, near);
+        gl.uniform1f(locComp.uFar, far);
+        gl.uniform1f(locComp.uFocus, parseFloat(dofFocusEl.value));
+        gl.uniform1f(locComp.uRange, parseFloat(dofRangeEl.value));
+        gl.uniform1f(locComp.uDOFBlur, parseFloat(dofBlurEl.value));
+
+  // If distortion will apply vignette later, disable it in composite to avoid double-vig
+  const compApplyVig = !distOnEl.checked;
+  gl.uniform1i(locComp.uVigOn, (vigOnEl.checked && compApplyVig) ? 1 : 0);
+  gl.uniform1f(locComp.uVigAmt, parseFloat(vigAmtEl.value));
+        gl.uniform1i(locComp.uGrainOn, grainOnEl.checked ? 1 : 0);
+        gl.uniform1f(locComp.uGrainAmt, parseFloat(grainAmtEl.value));
+  // Chromatic Aberration uniforms from UI
+  gl.uniform1i(locComp.uCAOn, caOnEl.checked ? 1 : 0);
+  gl.uniform1f(locComp.uCAAmt, parseFloat(caAmtEl.value));
+        gl.uniform1i(locComp.uPixOn, pixOnEl.checked ? 1 : 0);
+        gl.uniform1f(locComp.uPixSize, parseFloat(pixSizeEl.value));
+        gl.uniform1i(locComp.uPostOn, postOnEl.checked ? 1 : 0);
+        gl.uniform1f(locComp.uPostLevels, parseFloat(postLevEl.value));
+  // Blocky macroblocks
+  if (locComp.uBlockOn) gl.uniform1i(locComp.uBlockOn, blockOnEl.checked ? 1 : 0);
+  if (locComp.uBlockSize) gl.uniform1f(locComp.uBlockSize, parseFloat(blockSizeEl.value));
+  if (locComp.uBlockScrOn) gl.uniform1i(locComp.uBlockScrOn, blockScrOnEl.checked ? 1 : 0);
+  if (locComp.uBlockScrAmt) gl.uniform1f(locComp.uBlockScrAmt, parseFloat(blockScrAmtEl.value));
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        // Copy postTex into write-feedback framebuffer for next-frame reads
+        if (window._fbTexA && window._fbTexB && window._fbA && window._fbB) {
+          const writeFB = window._fbPing === 0 ? window._fbB : window._fbA;
+          gl.bindFramebuffer(gl.FRAMEBUFFER, writeFB);
+          gl.viewport(0,0,canvas.width,canvas.height);
+          gl.useProgram(progDown);
+          gl.bindVertexArray(vaoQuad);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, postTex);
+          gl.uniform1i(locDown.uTex, 0);
+          gl.uniform1f(locDown.uThreshold, 0.0);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          // restore postFB as current render target
+          gl.bindFramebuffer(gl.FRAMEBUFFER, postFB);
+          // flip ping
+          window._fbPing = (window._fbPing === 0) ? 1 : 0;
+        }
+
+        // 4) Final pass: distortion (if enabled) or blit to screen
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0,0,canvas.width,canvas.height);
+        gl.disable(gl.DEPTH_TEST);
+        // Final pass: distortion (if enabled) or blit to screen
+        gl.useProgram(progDist);
+        gl.bindVertexArray(vaoQuad);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, postTex);
+        gl.uniform1i(locDist.uTex, 0);
+
+        // Distortion params
+        const centerX = 0.5 + parseFloat(distCenterXEl.value);
+        const centerY = 0.5 + parseFloat(distCenterYEl.value);
+        gl.uniform2f(locDist.uCenter, centerX, centerY);
+        gl.uniform1f(locDist.uAmt, parseFloat(distAmtEl.value));
+        gl.uniform1f(locDist.uK2, parseFloat(distK2El.value));
+
+  // Bloom-after: bind bloom texture and pass flag/strength
+        const bloomAfter = distBloomAfterEl.checked && bloomOnEl.checked;
+        if (bloomAfter) {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, bloomA);
+          gl.uniform1i(locDist.uBloomTex, 1);
+          gl.uniform1f(locDist.uBloomStr, parseFloat(bloomStrEl.value));
+          gl.uniform1i(locDist.uBloomAfter, 1);
+        } else {
+          gl.uniform1i(locDist.uBloomAfter, 0);
+        }
+
+  // Vignette: pass through to distortion shader so it can apply vignette after warping
+  gl.uniform1i(locDist.uVigOn, vigOnEl.checked ? 1 : 0);
+  gl.uniform1f(locDist.uVigAmt, parseFloat(vigAmtEl.value));
+
+        // If distortion is disabled, just set amt=0 to blit
+        const amt = distOnEl.checked ? parseFloat(distAmtEl.value) : 0.0;
+        gl.uniform1f(locDist.uAmt, amt);
+
+        // Upload wobble/VHS uniforms if present (guard against missing locations)
+        try {
+          if (locDist.uWobOn) gl.uniform1i(locDist.uWobOn, wobOnEl.checked ? 1 : 0);
+          if (locDist.uWobAmt) gl.uniform1f(locDist.uWobAmt, parseFloat(wobAmtEl.value));
+          if (locDist.uWobSpeed) gl.uniform1f(locDist.uWobSpeed, parseFloat(wobSpeedEl.value));
+          if (locDist.uVhsOn) gl.uniform1i(locDist.uVhsOn, vhsOnEl.checked ? 1 : 0);
+          if (locDist.uVhsAmt) gl.uniform1f(locDist.uVhsAmt, parseFloat(vhsAmtEl.value));
+          if (locDist.uGrainOn) gl.uniform1i(locDist.uGrainOn, grainOnEl.checked ? 1 : 0);
+          if (locDist.uGrainAmt) gl.uniform1f(locDist.uGrainAmt, parseFloat(grainAmtEl.value));
+          if (locDist.uTime) gl.uniform1f(locDist.uTime, t);
+        } catch (e) {
+          // swallowing errors here to avoid breaking the render loop if a uniform is invalid
+          console.warn('[Uniform] Distortion extra uniforms failed to upload', e);
+        }
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.enable(gl.DEPTH_TEST);
+        gl.bindVertexArray(null);
+      } else {
+        // Direct render to screen (fallback)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0,0,canvas.width,canvas.height);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        if (twoSidedEl.checked) gl.disable(gl.CULL_FACE); else { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); }
+
+        gl.useProgram(prog3D);
+        gl.bindVertexArray(vao3D);
+        gl.uniformMatrix4fv(loc3D.uMVP, false, mvp);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, ampTex);
+        gl.uniform1i(loc3D.uHead, head);
+        gl.uniform1f(loc3D.uHeight, parseFloat(heightSlider.value));
+        const lead = leadingSel.value;
+        const flowAxis = (lead[0] === 'u') ? 1 : 0;
+        const flowSign = (lead[1] === '0') ? +1 : -1;
+        gl.uniform1i(loc3D.uFlowAxis, flowAxis);
+        gl.uniform1i(loc3D.uFlowSign, flowSign);
+
+        const base = Math.min(canvas.width, canvas.height) / 100.0;
+        gl.uniform1f(loc3D.uPlaneW, base * 3.5);
+        gl.uniform1f(loc3D.uPlaneD, base * 3.8);
+        gl.uniform1f(loc3D.uRadius, base * 1.4);
+        const shapeMap = { plane:0, sphere:1, cube:2, pyramid:3 };
+        gl.uniform1i(loc3D.uShape, shapeMap[shapeSel.value] || 0);
+        const fc = hexToRgb01(fillColorEl.value);
+        const wc = hexToRgb01(wireColorEl.value);
+        gl.uniform3f(loc3D.uFillColor, fc[0], fc[1], fc[2]);
+        gl.uniform3f(loc3D.uWireColor, wc[0], wc[1], wc[2]);
+        const fA = hexToRgb01(fillColAEl.value), fB = hexToRgb01(fillColBEl.value);
+        const wA = hexToRgb01(wireColAEl.value), wB = hexToRgb01(wireColBEl.value);
+        gl.uniform1i(loc3D.uFillGradOn, fillGradOnEl.checked ? 1 : 0);
+        gl.uniform3f(loc3D.uFillColA, fA[0], fA[1], fA[2]);
+        gl.uniform3f(loc3D.uFillColB, fB[0], fB[1], fB[2]);
+        gl.uniform1f(loc3D.uFillAngleDeg, parseFloat(fillAngleEl.value));
+        gl.uniform1i(loc3D.uWireGradOn, wireGradOnEl.checked ? 1 : 0);
+        gl.uniform3f(loc3D.uWireColA, wA[0], wA[1], wA[2]);
+        gl.uniform3f(loc3D.uWireColB, wB[0], wB[1], wB[2]);
+        gl.uniform1f(loc3D.uWireAngleDeg, parseFloat(wireAngleEl.value));
+        gl.uniform1f(loc3D.uBrightness, parseFloat(brightSlider.value));
+        gl.uniform1f(loc3D.uWireWidth, parseFloat(wireWEl.value));
+        gl.uniform1i(loc3D.uWireOn, wireOnEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uFillOn, fillOnEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uHeightAxis, ({y:0,x:1,z:2})[axisSel.value] ?? 0);
+        gl.uniform1i(loc3D.uTwoSided, twoSidedEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uLightingOn, lightingOnEl.checked ? 1 : 0);
+        gl.uniform1i(loc3D.uAOOn, (aoOnEl?.checked) ? 1 : 0);
+        gl.uniform1f(loc3D.uAOStr, parseFloat(aoStrEl?.value ?? '1.0'));
+        gl.uniform3f(loc3D.uScale, parseFloat(sxEl.value), parseFloat(syEl.value), parseFloat(szEl.value));
+        gl.drawArrays(gl.TRIANGLES, 0, vertCount);
+        gl.bindVertexArray(null);
+      }
+
+      } catch (err) {
+        console.error('[Render] Error in draw loop:', err);
+      }
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+    } catch (err) {
+      console.error('[Init] Error during initialization:', err);
+    }
+  })();
+  </script>
+</body>
+</html>

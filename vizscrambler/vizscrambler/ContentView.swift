@@ -3,6 +3,7 @@
 //  vizscrambler
 //
 //  Created by Christopher R Beintema on 8/23/25.
+//  testing updates
 //
 
 import SwiftUI
@@ -13,7 +14,7 @@ struct ContentView: View {
             Image(systemName: "globe")
                 .imageScale(.large)
                 .foregroundStyle(.tint)
-            Text("Hello, world!")
+            Text("Howdy, world!")
         }
         .padding()
     }
